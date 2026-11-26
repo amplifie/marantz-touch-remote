@@ -41,6 +41,17 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 |---|---|
 | ![EQ](docs/en-eq.png) | ![Sound & Levels](docs/en-sound.png) |
 
+## Download
+
+**[⬇ Download the latest release](https://github.com/amplifie/touch-remote-for-marantz/releases/latest/download/touch-remote-for-marantz.tar.gz)** (Linux only) –
+all versions are listed under [Releases](https://github.com/amplifie/touch-remote-for-marantz/releases).
+
+```bash
+tar xzf touch-remote-for-marantz.tar.gz
+cd touch-remote-for-marantz
+./install.sh
+```
+
 ## Installation
 
 ```bash

@@ -5,7 +5,7 @@ Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem SR7010
 mit Plex-Mediathek. Läuft unter Linux (z. B. Linux Mint, Ubuntu, Debian).
 
 INSTALLIEREN
-1. Paket entpacken (Doppelklick oder: tar xzf marantz-fernbedienung.tar.gz)
+1. Paket entpacken (Doppelklick oder: tar xzf touch-remote-for-marantz.tar.gz)
 2. Terminal im entpackten Ordner öffnen und eingeben:
        ./install.sh
    Falls Bausteine fehlen, nennt das Skript den passenden sudo-Befehl.
