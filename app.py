@@ -94,7 +94,7 @@ button.close { min-width: 54px; min-height: 54px; border-radius: 27px; padding: 
 
 .seg { background-color: rgba(0,0,0,0.35); border-radius: 24px; padding: 6px;
        border: 1px solid rgba(255,255,255,0.05); }
-.seg button { min-height: 72px; border-radius: 19px; background-image: none; background-color: transparent;
+.seg button { min-height: 66px; border-radius: 19px; background-image: none; background-color: transparent;
               border-color: transparent; box-shadow: none; color: #b9bcc2; font-size: 12pt; }
 .seg button:active { background-color: rgba(255,255,255,0.06); }
 .seg button.sel { background-image: linear-gradient(to bottom, #e2c48c, #b9965a); color: #1c160b;
@@ -112,6 +112,16 @@ button.toggle-sm { min-height: 62px; min-width: 90px; border-radius: 18px; font-
 .volnum { font-size: 62pt; font-weight: 200; color: #f2f1ee; }
 .volcap { font-size: 9pt; font-weight: 600; letter-spacing: 4px; color: #7d8088; }
 .volnum.muted { color: #8a8d94; }
+button.topbtn { min-width: 76px; min-height: 76px; border-radius: 38px; padding: 0; font-size: 20pt;
+                color: #b9bcc2; }
+button.edit { min-width: 46px; min-height: 40px; border-radius: 14px; padding: 0 8px; font-size: 13pt;
+              background-image: none; background-color: transparent; border-color: rgba(255,255,255,0.10);
+              box-shadow: none; color: #b9a27a; }
+button.chip { min-height: 58px; border-radius: 16px; font-size: 12pt; padding: 4px 8px; }
+button.chip.tall { min-height: 86px; font-size: 14pt; }
+.compact button { min-height: 62px; font-size: 11pt; }
+entry { background-color: #15171b; color: #ecebe8; border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 16px; min-height: 58px; font-size: 15pt; padding: 0 18px; box-shadow: none; }
 scale.geq trough { min-width: 12px; border-radius: 6px; background-color: rgba(255,255,255,0.08);
                    border: none; }
 scale.geq highlight { background-image: linear-gradient(to top, #8a6c3c, #e2c48c); border-radius: 6px;
@@ -364,6 +374,7 @@ class App(Gtk.Window):
         self.is_full = True
         self.show_page("main")
         self.refresh()
+        in_bg(m.model_name, lambda n: self.model_lbl.set_text(n.upper()), lambda e: None)
         GLib.timeout_add_seconds(3, self.tick)
         GLib.timeout_add(1000, self.media_tick)
 
@@ -372,15 +383,15 @@ class App(Gtk.Window):
         rail = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14), "rail")
         rail.set_size_request(260, -1)
 
-        top = Gtk.Box(spacing=16)
+        top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        top.set_halign(Gtk.Align.CENTER)
+        self.model_lbl = label("MARANTZ", "brand")          # wird durch das echte Modell ersetzt
+        top.pack_start(self.model_lbl, False, False, 0)
         self.power_btn = button("⏻", self.toggle_power, "power")
+        self.power_btn.set_halign(Gtk.Align.CENTER)
         top.pack_start(self.power_btn, False, False, 0)
-        brand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        brand.set_valign(Gtk.Align.CENTER)
-        brand.pack_start(label("SR7010", "brand", xalign=0), False, False, 0)
-        self.power_lbl = label("–", "status-sub", xalign=0)
-        brand.pack_start(self.power_lbl, False, False, 4)
-        top.pack_start(brand, True, True, 0)
+        self.power_lbl = label("–", "status-sub")
+        top.pack_start(self.power_lbl, False, False, 0)
         rail.pack_start(top, False, False, 0)
 
         rail.pack_start(Gtk.Box(), True, True, 0)  # Abstand: Bedienung liegt im Daumenbereich
@@ -392,31 +403,40 @@ class App(Gtk.Window):
             add_cls(b, "nav")
         rail.pack_start(nav, False, False, 0)
 
-        rail.pack_start(label("SZENEN", "cap", xalign=0), False, False, 16)
-        for key, title, sub in (("film", "Filmabend", "TV Audio"),
-                                ("musik", "Musik", "Mediaserver"),
-                                ("aus", "Alles aus", "Standby")):
+        cap = Gtk.Box()
+        cap.pack_start(label("SZENEN", "cap", xalign=0), True, True, 0)
+        cap.pack_start(button("✎", self.open_scene_editor, "edit"), False, False, 0)
+        rail.pack_start(cap, False, False, 10)
+        self.scene_btns = []
+        for idx in range(3):
             b = Gtk.Button()
             b.set_can_focus(False)
             add_cls(b, "scene")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             inner.set_valign(Gtk.Align.CENTER)
             inner.set_halign(Gtk.Align.CENTER)
-            inner.pack_start(label(title, "scene-title", xalign=0.5), False, False, 0)
-            inner.pack_start(label(sub, "scene-sub", xalign=0.5), False, False, 0)
+            t = label("", "scene-title")
+            t.set_ellipsize(3)
+            t.set_max_width_chars(14)
+            sub = label("", "scene-sub")
+            inner.pack_start(t, False, False, 0)
+            inner.pack_start(sub, False, False, 0)
             b.add(inner)
-            b.connect("clicked", lambda _b, k=key, t=title: self.scene(k, t))
+            b.connect("clicked", lambda _b, k=idx: self.run_profile(k))
+            self.scene_btns.append((t, sub))
             rail.pack_start(b, False, False, 0)
-        rail.pack_start(Gtk.Box(), False, False, 30)
+        rail.pack_start(Gtk.Box(), False, False, 24)
+        self.refresh_scenes()
         return rail
 
     # ----- rechte Leiste -----
     def build_right(self):
         rail = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14), "rail")
         rail.set_size_request(230, -1)
-        top = Gtk.Box(spacing=12)
-        top.pack_end(button("✕", Gtk.main_quit, "close"), False, False, 0)
-        top.pack_end(button("⚙", self.open_setup, "close"), False, False, 0)
+        top = Gtk.Box(spacing=22, homogeneous=True)
+        top.set_halign(Gtk.Align.CENTER)
+        top.pack_start(button("⚙", self.open_setup, "topbtn"), False, False, 0)
+        top.pack_start(button("✕", Gtk.main_quit, "topbtn"), False, False, 0)
         rail.pack_start(top, False, False, 0)
         rail.pack_start(Gtk.Box(), True, True, 0)
         self.mic_btn = None
@@ -470,6 +490,8 @@ class App(Gtk.Window):
         self.stack.add_named(self.build_eq(), "eq")
         self.stack.add_named(self.build_media(), "media")
         self.stack.add_named(self.build_setup(), "setup")
+        self.stack.add_named(self.build_scene_editor(), "edit_scenes")
+        self.stack.add_named(self.build_input_editor(), "edit_inputs")
         col.pack_start(self.stack, True, True, 0)
 
         self.err_lbl = label("", "err")
@@ -477,10 +499,10 @@ class App(Gtk.Window):
         return col
 
     def build_main(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         ov = Gtk.Overlay()
         self.ring = Gtk.DrawingArea()
-        self.ring.set_size_request(-1, 460)
+        self.ring.set_size_request(-1, 380)
         self.ring.connect("draw", self.draw_ring)
         # Ring als Drehregler: Finger auflegen und im Kreis bewegen
         self.ring_drag = None
@@ -500,11 +522,20 @@ class App(Gtk.Window):
         ov.add_overlay(mid)
         page.pack_start(ov, True, True, 0)
 
-        page.pack_start(label("EINGANG", "cap", xalign=0), False, False, 0)
-        seg, self.in_btns = segmented([(c, t) for c, t in INPUT_ITEMS], self.select_input)
+        cap = Gtk.Box()
+        cap.pack_start(label("EINGANG", "cap", xalign=0), True, True, 0)
+        cap.pack_start(button("✎", self.open_input_editor, "edit"), False, False, 0)
+        page.pack_start(cap, False, False, 0)
+        self.in_holder = Gtk.Box()
+        page.pack_start(self.in_holder, False, False, 0)
+        self.in_btns = {}
+        self.refresh_inputs()
+        page.pack_start(label("SOUND MODE", "cap", xalign=0), False, False, 0)
+        seg, _ = segmented(m.MODE_GROUPS, self.cmd)
         page.pack_start(seg, False, False, 0)
         page.pack_start(label("KLANGMODUS", "cap", xalign=0), False, False, 0)
         seg, self.mode_btns = segmented([(c, t) for c, t, _ in m.MODES], self.cmd)
+        add_cls(seg, "compact")
         page.pack_start(seg, False, False, 0)
         return page
 
@@ -989,6 +1020,227 @@ class App(Gtk.Window):
         if code == "SISERVER":
             self.show_page("media")
 
+    # ----- Frei belegbare Szenen -----
+    def refresh_scenes(self):
+        self.config = m.load_config()
+        for (t, sub), p in zip(self.scene_btns, self.config["profiles"]):
+            t.set_text(p.get("name") or "Szene")
+            sub.set_text(m.profile_subtitle(p))
+
+    def run_profile(self, idx):
+        p = self.config["profiles"][idx]
+        self.status_sub.set_text(f"Szene „{p.get('name', '')}“ wird eingestellt …")
+        self.worker.put(lambda: m.run_profile(p))
+
+    def chip_grid(self, items, cols, cb):
+        """Raster aus Auswahl-Knöpfen; items = [(wert, text)] → (grid, {wert: button})"""
+        g = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        btns = {}
+        for n, (v, t) in enumerate(items):
+            b = button(t, lambda v=v: cb(v), "chip")
+            btns[v] = b
+            g.attach(b, n % cols, n // cols, 1, 1)
+        return g, btns
+
+    def build_scene_editor(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        head = Gtk.Box(spacing=16)
+        head.pack_start(label("Szenen bearbeiten", "media-title", xalign=0), False, False, 0)
+        tabs, self.pe_tabs = segmented([(0, "1"), (1, "2"), (2, "3")], self.pe_select)
+        tabs.set_size_request(330, -1)
+        head.pack_end(tabs, False, False, 0)
+        page.pack_start(head, False, False, 0)
+
+        row = Gtk.Box(spacing=12)
+        self.pe_name = Gtk.Entry(placeholder_text="Name der Szene")
+        self.pe_name.set_max_length(24)
+        self.pe_name.connect("changed", lambda e: self.pe_set("name", e.get_text().strip()))
+        row.pack_start(self.pe_name, True, True, 0)
+        row.pack_start(button("Aktuellen Zustand übernehmen", self.pe_capture, "chip", "sel"),
+                       False, False, 0)
+        page.pack_start(row, False, False, 0)
+
+        page.pack_start(label("Was soll passieren?", "status-sub", xalign=0), False, False, 0)
+        seg, self.pe_power = segmented([("on", "Einschalten & einstellen"),
+                                        ("off", "Ausschalten (Standby)")],
+                                       lambda v: (self.pe_set("power", v), self.pe_render()))
+        add_cls(seg, "compact")
+        page.pack_start(seg, False, False, 0)
+
+        self.pe_detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.pe_detail.pack_start(label("Eingang", "status-sub", xalign=0), False, False, 0)
+        srcs = [(None, "unverändert")] + [("SI" + c, m.SOURCE_NAMES[c]) for c in m.SOURCE_ORDER]
+        g, self.pe_in = self.chip_grid(srcs, 6, lambda v: (self.pe_set("input", v), self.pe_render()))
+        self.pe_detail.pack_start(g, False, False, 0)
+        self.pe_detail.pack_start(label("Klangmodus", "status-sub", xalign=0), False, False, 0)
+        modes = [(None, "unverändert")] + [(c, t) for c, t, _ in m.MODES]
+        g, self.pe_mode = self.chip_grid(modes, 5, lambda v: (self.pe_set("mode", v), self.pe_render()))
+        self.pe_detail.pack_start(g, False, False, 0)
+        self.pe_detail.pack_start(label("Lautstärke", "status-sub", xalign=0), False, False, 0)
+        vr = Gtk.Box(spacing=8)
+        self.pe_vol_keep = button("unverändert", lambda: (self.pe_set("volume", None), self.pe_render()),
+                                  "chip")
+        vr.pack_start(self.pe_vol_keep, True, True, 0)
+        for d in (-5, -1):
+            vr.pack_start(button(("%+d" % d).replace("-", "−"), lambda d=d: self.pe_vol(d), "chip"),
+                          True, True, 0)
+        self.pe_vol_lbl = label("–", "tone-val")
+        vr.pack_start(self.pe_vol_lbl, True, True, 0)
+        for d in (1, 5):
+            vr.pack_start(button("%+d" % d, lambda d=d: self.pe_vol(d), "chip"), True, True, 0)
+        self.pe_detail.pack_start(vr, False, False, 0)
+        page.pack_start(self.pe_detail, False, False, 0)
+
+        page.pack_start(Gtk.Box(), True, True, 0)
+        foot = Gtk.Box(spacing=14, homogeneous=True)
+        foot.pack_start(button("Abbrechen", lambda: self.show_page("main"), "chip"), True, True, 0)
+        foot.pack_start(button("Speichern", self.pe_save, "chip", "sel"), True, True, 0)
+        page.pack_start(foot, False, False, 0)
+        self.pe = {"idx": 0, "profiles": [], "loading": False}
+        return page
+
+    def open_scene_editor(self):
+        import copy
+        self.pe["profiles"] = copy.deepcopy(m.load_config()["profiles"])
+        self.show_page("edit_scenes")
+        self.pe_select(0)
+
+    def pe_select(self, idx):
+        self.pe["idx"] = idx
+        self.pe["loading"] = True
+        self.pe_name.set_text(self.pe["profiles"][idx].get("name", ""))
+        self.pe["loading"] = False
+        self.pe_render()
+
+    def pe_set(self, key, value):
+        if self.pe.get("loading"):
+            return
+        p = self.pe["profiles"][self.pe["idx"]]
+        if value is None:
+            p.pop(key, None)
+        else:
+            p[key] = value
+
+    def pe_vol(self, d):
+        p = self.pe["profiles"][self.pe["idx"]]
+        base = p.get("volume")
+        if base is None:
+            base = int(round(self.st.get("volume") or 40))
+        p["volume"] = max(0, min(m.LOUD, int(base) + d))   # Szenen höchstens 80
+        self.pe_render()
+
+    def pe_capture(self):
+        """Eingang, Klangmodus und Lautstärke so übernehmen, wie sie gerade am Receiver sind."""
+        st = self.st
+        if not st.get("power"):
+            return self.toast("Der Receiver ist aus – bitte erst einschalten und einstellen.")
+        p = self.pe["profiles"][self.pe["idx"]]
+        p["power"] = "on"
+        cur = st.get("input", "").lower().replace(" ", "")
+        p["input"] = next((code for code, name in self.all_sources
+                           if name.lower().replace(" ", "") == cur), p.get("input"))
+        key = m.mode_key(st.get("surround", ""))
+        p["mode"] = next((c for c, _, k in m.MODES if k == key), p.get("mode"))
+        if st.get("volume") is not None:
+            p["volume"] = max(0, min(m.LOUD, int(round(st["volume"]))))
+        self.pe_render()
+        self.toast("Aktueller Zustand übernommen")
+
+    def pe_render(self):
+        p = self.pe["profiles"][self.pe["idx"]]
+        for i, b in self.pe_tabs.items():
+            b.set_label(self.pe["profiles"][i].get("name") or f"Szene {i + 1}")
+        mark(self.pe_tabs, self.pe["idx"])
+        mark(self.pe_power, p.get("power", "on"))
+        self.pe_detail.set_sensitive(p.get("power", "on") != "off")
+        mark(self.pe_in, p.get("input"))
+        mark(self.pe_mode, p.get("mode"))
+        v = p.get("volume")
+        self.pe_vol_lbl.set_text("–" if v is None else str(v))
+        set_cls(self.pe_vol_keep, "sel", v is None)
+
+    def pe_save(self):
+        for i, p in enumerate(self.pe["profiles"]):
+            p["name"] = (p.get("name") or f"Szene {i + 1}")[:24]
+        cfg = m.load_config()
+        cfg["profiles"] = self.pe["profiles"]
+        m.save_config(cfg)
+        self.refresh_scenes()
+        self.show_page("main")
+        self.toast("Szenen gespeichert")
+
+    # ----- Frei wählbare Eingangsleiste -----
+    def refresh_inputs(self):
+        self.config = m.load_config()
+        for c in self.in_holder.get_children():
+            self.in_holder.remove(c)
+        items = [(c, m.source_name(c)) for c in self.config["inputs"]]
+        seg, self.in_btns = segmented(items, self.select_input)
+        self.in_holder.pack_start(seg, True, True, 0)
+        self.in_holder.show_all()
+        if self.st:
+            self._last_status = None
+            self.on_status(self.st)
+
+    def build_input_editor(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        page.pack_start(label("Eingänge in der Leiste", "media-title", xalign=0), False, False, 0)
+        page.pack_start(label(f"Bis zu {m.MAX_INPUTS} Eingänge antippen – in der Reihenfolge, in der "
+                              "sie erscheinen sollen. Nochmal tippen entfernt.", "status-sub",
+                              xalign=0), False, False, 0)
+        self.ie_holder = Gtk.Box()
+        page.pack_start(self.ie_holder, False, False, 8)
+        page.pack_start(Gtk.Box(), True, True, 0)
+        foot = Gtk.Box(spacing=14, homogeneous=True)
+        foot.pack_start(button("Abbrechen", lambda: self.show_page("main"), "chip"), True, True, 0)
+        foot.pack_start(button("Speichern", self.ie_save, "chip", "sel"), True, True, 0)
+        page.pack_start(foot, False, False, 0)
+        self.ie_sel = []
+        return page
+
+    def open_input_editor(self):
+        self.ie_sel = list(m.load_config()["inputs"])
+        self.ie_fill()
+        self.show_page("edit_inputs")
+        in_bg(m.sources, lambda lst: (setattr(self, "all_sources", lst), self.ie_fill()), lambda e: None)
+
+    def ie_fill(self):
+        for c in self.ie_holder.get_children():
+            self.ie_holder.remove(c)
+        g, self.ie_btns = self.chip_grid(self.all_sources, 4, self.ie_toggle)
+        for b in self.ie_btns.values():
+            add_cls(b, "tall")
+        self.ie_holder.pack_start(g, True, True, 0)
+        self.ie_holder.show_all()
+        self.ie_render()
+        return False
+
+    def ie_toggle(self, code):
+        if code in self.ie_sel:
+            self.ie_sel.remove(code)
+        elif len(self.ie_sel) < m.MAX_INPUTS:
+            self.ie_sel.append(code)
+        else:
+            self.toast(f"Höchstens {m.MAX_INPUTS} Eingänge – erst einen anderen abwählen.")
+        self.ie_render()
+
+    def ie_render(self):
+        names = dict(self.all_sources)
+        for code, b in self.ie_btns.items():
+            on = code in self.ie_sel
+            b.set_label(f"{self.ie_sel.index(code) + 1}.  {names[code]}" if on else names[code])
+            set_cls(b, "sel", on)
+
+    def ie_save(self):
+        if not self.ie_sel:
+            return self.toast("Bitte mindestens einen Eingang wählen.")
+        cfg = m.load_config()
+        cfg["inputs"] = self.ie_sel[:m.MAX_INPUTS]
+        m.save_config(cfg)
+        self.refresh_inputs()
+        self.show_page("main")
+        self.toast("Eingangsleiste gespeichert")
+
     # ----- Setup-Menü des Receivers (auf dem Fernseher) -----
     def build_setup(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
@@ -1029,8 +1281,9 @@ class App(Gtk.Window):
             return self.close_setup()
         self.page_before_setup = self.stack.get_visible_child_name()
         cur = self.st.get("input", "").lower().replace(" ", "")
-        self.input_before_setup = next((c for c, k in INPUT_MATCH.items() if k in cur), None)
-        name = dict(INPUT_ITEMS).get(self.input_before_setup)
+        self.input_before_setup = next((c for c, n in self.all_sources
+                                        if n.lower().replace(" ", "") == cur), None)
+        name = m.source_name(self.input_before_setup) if self.input_before_setup else None
         self.setup_close_btn.set_label(f"Schließen & zurück zu {name}" if name else "Menü schließen")
         self.cmd("MNMEN ON")
         self.stack.set_visible_child_name("setup")
@@ -1398,6 +1651,13 @@ class App(Gtk.Window):
 
     def voice_exec(self, text, c):
         said, a = f"„{text}“", c.get("aktion")
+        # Szenen auch über ihren selbst gewählten Namen aufrufen („Kino“, „Party“ …)
+        norm = lambda x: "".join(ch for ch in x.lower() if ch.isalnum())
+        for i, p in enumerate(self.config["profiles"]):
+            n = norm(p.get("name", ""))
+            if len(n) >= 3 and n in norm(text) and a not in ("kuenstler",):
+                self.run_profile(i)
+                return self.toast(f"{said}\n→ {p.get('name')}")
         msg = None
         if a is None:
             return self.toast(f"{said}\nDas habe ich leider nicht verstanden.", 5)
@@ -1417,8 +1677,15 @@ class App(Gtk.Window):
                 self.cmd(c["wert"])
             msg = c["text"]
         elif a == "szene":
-            self.scene(c["wert"], c["text"])
-            msg = c["text"]
+            profs = self.config["profiles"]
+            idx = {"film": 0, "musik": 1}.get(c["wert"])
+            if c["wert"] == "aus":
+                idx = next((i for i, p in enumerate(profs) if p.get("power") == "off"), None)
+                if idx is None:
+                    self.cmd("ZMOFF")
+                    return self.toast(f"{said}\n→ Ausschalten")
+            self.run_profile(idx)
+            msg = profs[idx].get("name")
         elif a == "ctl":
             self.ctl(c["wert"])
             msg = {"pause": "Pause", "play": "Weiter", "stop": "Stopp", "next": "Nächster Titel",
@@ -1639,7 +1906,7 @@ class App(Gtk.Window):
         self.render_volume()
         cur_in = st["input"].lower().replace(" ", "")
         for code, b in self.in_btns.items():
-            set_cls(b, "sel", on and INPUT_MATCH[code] in cur_in)
+            set_cls(b, "sel", on and m.source_name(code).lower().replace(" ", "") == cur_in)
         key = m.mode_key(st["surround"])
         for code, b in self.mode_btns.items():
             set_cls(b, "sel", on and MODE_KEYS[code] == key)

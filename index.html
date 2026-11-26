@@ -70,29 +70,17 @@
   </section>
   <section class="scene">
     <h2>Szenen</h2>
-    <div class="row">
-      <button data-scene="film">🎬 Filmabend</button>
-      <button data-scene="musik">🎵 Musik</button>
-      <button data-scene="aus">Alles aus</button>
-    </div>
+    <div class="row" id="scenes"></div>
   </section>
   <section>
     <h2>Eingang</h2>
-    <div class="row" id="inputs">
-      <button data-cmd="SITV" data-in="tvaudio">TV Audio</button>
-      <button data-cmd="SIGAME" data-in="game">Game</button>
-      <button data-cmd="SISERVER" data-in="server">Mediaserver</button>
-    </div>
+    <div class="row" id="inputs"></div>
   </section>
   <section>
-    <h2>Klangmodus</h2>
-    <div class="row" id="modes">
-      <button data-cmd="MSDOLBY DIGITAL" data-ms="dolby">Dolby / Atmos</button>
-      <button data-cmd="MSSTEREO" data-ms="stereo">Stereo</button>
-      <button data-cmd="MSDIRECT" data-ms="direct">Direct</button>
-      <button data-cmd="MSPURE DIRECT" data-ms="pure">Pure Direct</button>
-      <button data-cmd="MSAUTO" data-ms="auto">Auto</button>
-    </div>
+    <h2>Sound Mode</h2>
+    <div class="row" id="groups"></div>
+    <h2 style="margin-top:14px">Klangmodus</h2>
+    <div class="row" id="modes"></div>
   </section>
 </div>
 
@@ -182,11 +170,12 @@ function render() {
   $('#mute').classList.toggle('sel', st.mute);
   $('#mute').textContent = st.mute ? 'Stumm – antippen für Ton' : 'Stumm';
   const inp = (st.input || '').toLowerCase().replace(/ /g, '');
-  $$('#inputs button').forEach(b => b.classList.toggle('sel', inp.includes(b.dataset.in)));
+  $$('#inputs button').forEach(b => b.classList.toggle('sel', inp === b.dataset.in));
   const s = (st.surround || '').toLowerCase();
   const key = s.includes('pure') ? 'pure' : s.includes('direct') ? 'direct' :
-              (s.includes('dolby') || s.includes('atmos')) ? 'dolby' : s.includes('stereo') ? 'stereo' :
-              s.includes('auto') ? 'auto' : '';
+              s.includes('neural') ? 'neuralx' : (s.includes('multi') || s.includes('mch')) ? 'mch' :
+              s.includes('dts') ? 'dts' : (s.includes('dolby') || s.includes('atmos')) ? 'dolby' :
+              s.includes('stereo') ? 'stereo' : s.includes('auto') ? 'auto' : '';
   $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.ms === key));
   const sEl = $('#state'); sEl.textContent = '';
   const bEl = document.createElement('b'); bEl.textContent = st.power ? st.input : 'Standby'; sEl.append(bEl);
@@ -245,7 +234,7 @@ document.addEventListener('click', e => {
   else if (b.id === 'mute') cmd(st.mute ? 'MUOFF' : 'MUON');
   else if (b.id === 'swlon') cmd(cfg && cfg.swl_on ? 'PSSWL OFF' : 'PSSWL ON', true);
   else if (b.dataset.vol) volClick(Number(b.dataset.vol));
-  else if (b.dataset.scene) run('/api/scene?n=' + b.dataset.scene);
+  else if (b.dataset.scene !== undefined) run('/api/scene?n=' + b.dataset.scene);
   else if (b.dataset.lv && cfg) {
     const k = b.dataset.lv, cur = k === 'swl' ? cfg.swl : cfg.levels[k];
     if (cur == null) return;
@@ -256,6 +245,27 @@ document.addEventListener('click', e => {
   } else if (b.dataset.cmd) cmd(b.dataset.cmd, !!b.closest('[data-set]'));
 });
 
+function mk(parent, text, data) {
+  const b = document.createElement('button'); b.textContent = text;
+  Object.entries(data).forEach(([k, v]) => b.dataset[k] = v); parent.append(b);
+}
+async function loadConfig() {
+  try {
+    const c = await api('/api/config');
+    $('#scenes').textContent = ''; $('#inputs').textContent = '';
+    $('#groups').textContent = ''; $('#modes').textContent = '';
+    c.profiles.forEach((p, i) => {
+      mk($('#scenes'), p.name, {scene: i});
+      const sub = document.createElement('small'); sub.textContent = p.sub;
+      $('#scenes').lastChild.append(document.createElement('br'), sub);
+    });
+    c.inputs.forEach(x => mk($('#inputs'), x.name, {cmd: x.cmd, in: x.name.toLowerCase().replace(/ /g, '')}));
+    c.groups.forEach(x => mk($('#groups'), x.name, {cmd: x.cmd}));
+    c.modes.forEach(x => mk($('#modes'), x.name, {cmd: x.cmd, ms: x.key}));
+    render();
+  } catch (e) { showErr(e); }
+}
+loadConfig();
 refresh();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);
 </script>

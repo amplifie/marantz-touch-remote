@@ -34,9 +34,12 @@ CHANNELS = [  # (Code, Anzeigename)
 
 INPUTS = [("SITV", "TV Audio"), ("SIGAME", "Game"), ("SISERVER", "Mediaserver")]
 
-MODES = [("MSDOLBY DIGITAL", "Dolby / Atmos", "dolby"), ("MSSTEREO", "Stereo", "stereo"),
+MODES = [("MSAUTO", "Auto", "auto"), ("MSSTEREO", "Stereo", "stereo"),
          ("MSDIRECT", "Direct", "direct"), ("MSPURE DIRECT", "Pure Direct", "pure"),
-         ("MSAUTO", "Auto", "auto")]
+         ("MSDOLBY DIGITAL", "Dolby", "dolby"), ("MSDTS SURROUND", "DTS", "dts"),
+         ("MSNEURAL:X", "Neural:X", "neuralx"), ("MSMCH STEREO", "Multi Ch Stereo", "mch")]
+# Sound-Mode-Tasten wie auf der Original-Fernbedienung (schalten innerhalb der Gruppe weiter)
+MODE_GROUPS = [("MSMOVIE", "Film"), ("MSMUSIC", "Musik"), ("MSGAME", "Spiel"), ("MSPURE DIRECT", "Pure")]
 
 # Szenen: Liste von (Befehl, Wartezeit danach in Sekunden)
 SCENES = {
@@ -49,7 +52,8 @@ _CH = "|".join(c for c, _ in CHANNELS)
 ALLOWED = re.compile(
     r"^(ZMON|ZMOFF|PWON|PWSTANDBY|MUON|MUOFF|MVUP|MVDOWN|MV\d{2,3}|"
     r"SI(TV|GAME|SERVER|BD|DVD|BT|IRADIO|USB/IPOD|SAT/CBL|MPLAY|AUX1|AUX2|CD|PHONO|TUNER|FAVORITES|NET)|"
-    r"MS(STEREO|AUTO|DIRECT|PURE DIRECT|DOLBY DIGITAL|MOVIE|MUSIC|GAME)|"
+    r"MS(STEREO|AUTO|DIRECT|PURE DIRECT|DOLBY DIGITAL|DOLBY SURROUND|DOLBY ATMOS|DTS SURROUND|"
+    r"NEURAL:X|MCH STEREO|MOVIE|MUSIC|GAME)|"
     r"PSMULTEQ:(AUDYSSEY|BYP\.LR|FLAT|OFF)|PSDYNEQ (ON|OFF)|PSREFLEV (0|5|10|15)|"
     r"PSDYNVOL (OFF|LIT|MED|HEV)|PSCINEMA EQ\.(ON|OFF)|"
     r"PSSWL (ON|OFF|UP|DOWN|\d{2,3})|"
@@ -479,10 +483,97 @@ def mode_key(surround: str) -> str:
     s = (surround or "").lower()
     if "pure" in s: return "pure"
     if "direct" in s: return "direct"
+    if "neural" in s: return "neuralx"
+    if "multi" in s or "mch" in s or "m ch" in s: return "mch"
+    if "dts" in s: return "dts"
     if "dolby" in s or "atmos" in s: return "dolby"
     if "stereo" in s: return "stereo"
     if "auto" in s: return "auto"
     return ""
+
+
+# ---------- Einstellungen: frei belegbare Szenen und Eingangsleiste ----------
+CONFIG_FILE = os.path.expanduser("~/.config/marantz/config.json")
+DEFAULT_CONFIG = {
+    "profiles": [
+        {"name": "Filmabend", "power": "on", "input": "SITV", "mode": "MSDOLBY DIGITAL", "volume": 55},
+        {"name": "Musik", "power": "on", "input": "SISERVER", "mode": "MSDIRECT", "volume": 40},
+        {"name": "Alles aus", "power": "off"},
+    ],
+    "inputs": ["SITV", "SIGAME", "SISERVER"],
+}
+MAX_INPUTS = 5
+
+
+def load_config() -> dict:
+    import json
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG))
+    try:
+        with open(CONFIG_FILE) as f:
+            user = json.load(f)
+        if isinstance(user.get("profiles"), list) and len(user["profiles"]) == 3:
+            cfg["profiles"] = user["profiles"]
+        if isinstance(user.get("inputs"), list) and user["inputs"]:
+            cfg["inputs"] = [c for c in user["inputs"] if ALLOWED.match(str(c))][:MAX_INPUTS]
+    except (OSError, ValueError):
+        pass
+    return cfg
+
+
+def save_config(cfg: dict) -> None:
+    import json
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    tmp = CONFIG_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, CONFIG_FILE)
+
+
+def source_name(code: str) -> str:
+    c = code[2:] if code.startswith("SI") else code
+    for sc, name in (_sources.get("list") or []):
+        if sc == code:
+            return name
+    return SOURCE_NAMES.get(c, c)
+
+
+def profile_subtitle(p: dict) -> str:
+    if p.get("power") == "off":
+        return "Standby"
+    return source_name(p["input"]) if p.get("input") else "Eingang bleibt"
+
+
+def run_profile(p: dict) -> None:
+    """Eine frei belegte Szene ausführen."""
+    if p.get("power") == "off":
+        send("ZMOFF")
+        return
+    was_off = not status()["power"]
+    send("ZMON")
+    if was_off:
+        time.sleep(4)                      # Receiver braucht nach dem Einschalten etwas
+    if p.get("input") and ALLOWED.match(p["input"]):
+        send(p["input"])
+        time.sleep(1.5)
+    if p.get("mode") and ALLOWED.match(p["mode"]):
+        send(p["mode"])
+        time.sleep(1.0)
+    if isinstance(p.get("volume"), (int, float)):
+        send("MV%02d" % max(0, min(MAX_VOL, int(p["volume"]))))
+
+
+_model = {"name": None}
+
+
+def model_name() -> str:
+    """Modellname des Receivers (z. B. „SR7010“) aus seiner UPnP-Beschreibung."""
+    if _model["name"]:
+        return _model["name"]
+    _ensure_receiver()
+    raw = urllib.request.urlopen(f"http://{RECEIVER}:8080/description.xml", timeout=4).read()
+    m_ = re.search(rb"<modelName>\*?([^<]+)</modelName>", raw)
+    _model["name"] = m_.group(1).decode("utf-8", "ignore").strip() if m_ else "Receiver"
+    return _model["name"]
 
 
 def settings() -> dict:

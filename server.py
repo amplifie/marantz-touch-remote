@@ -215,11 +215,22 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/vol":
                 new = m.change_volume(int(q.get("d", "0")))
                 self._json({"ok": True, "volume": new, "loud": new >= m.LOUD})
+            elif u.path == "/api/config":
+                cfg = m.load_config()
+                self._json({
+                    "profiles": [{"name": p.get("name", ""), "sub": m.profile_subtitle(p)}
+                                 for p in cfg["profiles"]],
+                    "inputs": [{"cmd": c, "name": m.source_name(c)} for c in cfg["inputs"]],
+                    "modes": [{"cmd": c, "name": t, "key": k} for c, t, k in m.MODES],
+                    "groups": [{"cmd": c, "name": t} for c, t in m.MODE_GROUPS],
+                })
             elif u.path == "/api/scene":
-                name = q.get("n", "")
-                if name not in m.SCENES:
+                profiles = m.load_config()["profiles"]
+                try:
+                    p = profiles[int(q.get("n", ""))]
+                except (ValueError, IndexError):
                     return self._json({"error": "Unbekannte Szene"}, 400)
-                m.run_scene(name)
+                m.run_profile(p)
                 self._json({"ok": True})
             # ----- Musik-Bibliothek & Wiedergabe -----
             elif u.path == "/api/lib":
