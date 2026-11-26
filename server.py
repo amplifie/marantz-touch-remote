@@ -193,7 +193,11 @@ class Player:
             return 3
         dur = self.queue[self.i].get("duration") if 0 <= self.i < len(self.queue) else None
         near_end = dur and (self.last.get("elapsed") or 0) >= dur - 15
-        return 1 if near_end or time.time() - self.started < GRACE else 2
+        if time.time() - self.started < GRACE:
+            return 1
+        if self.last.get("state") == "PAUSED_PLAYBACK":
+            return 5            # Befehle aus der App wecken den Thread trotzdem sofort
+        return 1 if near_end else 2
 
     def _check(self, gen):
         if gen != self.gen:

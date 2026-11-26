@@ -30,7 +30,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, GObject, PangoCairo  # noqa: E402
+from gi.repository import Gtk, Gdk, Gio, GLib, GdkPixbuf, GObject, PangoCairo  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import marantz as m  # noqa: E402
@@ -671,6 +671,7 @@ VOICE_START_WAIT = 60   # s höchstens für das Laden des Sprachmodells
 VOICE_WAIT = 20         # s höchstens auf eine Erkennung warten
 SEEK_DELAY = 300    # ms Ruhe nach dem letzten Tipp auf den Balken, dann spulen
 STATUS_FAILS = 3    # so viele Fehlabfragen in Folge, bis "Keine Verbindung" erscheint
+STATUS_FRESH = 8    # s; mit älterem Stand wird die Lautstärke nicht relativ verstellt
 
 
 class ServiceError(RuntimeError):
@@ -681,10 +682,10 @@ class ServiceError(RuntimeError):
         self.source = source
 
 
-def api(path):
+def api(path, timeout=60):
     try:
         req = urllib.request.Request(SERVER + path, headers={"X-Marantz": "1"})
-        return json.loads(urllib.request.urlopen(req, timeout=60).read())
+        return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
     except urllib.error.HTTPError as e:
         try:                                    # echten Fehlertext aus der Antwort lesen
             r = json.loads(e.read())
@@ -752,6 +753,8 @@ class App(Gtk.Window):
         self.err_timer = None
         self.status_busy = self.status_again = False
         self.status_fails = 0
+        # Abfragezeit des angezeigten Stands (Uhrzeit, zählt auch die Bereitschaft mit)
+        self.status_time = self.status_asked = self.status_valid_from = 0.0
         # Drei getrennte Warteschlangen, damit Lautstärke und Stumm nie warten müssen:
         self.worker = Worker(self.show_err, self.after_commands)    # kurze Befehle an den Receiver
         self.service = Worker(self.show_err, self.after_slow)       # Hintergrunddienst/Mediathek
@@ -792,6 +795,7 @@ class App(Gtk.Window):
         GLib.timeout_add_seconds(60, self.voice_idle_check)
         self.connect("destroy", self.on_destroy)
         self.connect("key-press-event", self.on_key)
+        self.connect("window-state-event", self.on_window_state)
         # Mauszeiger: bei Touch unsichtbar, bei Touchpad/Maus kurz sichtbar
         self.cursor_timer = None
         self.connect("realize", lambda *_: self.hide_cursor())
@@ -1046,6 +1050,7 @@ class App(Gtk.Window):
         self.lib_gen = 0            # zählt geöffnete Ordner (alte Antworten verwerfen)
         self.pl = {}
         self.pl_error_id = None
+        self.player_busy = False
         self.seek_target, self.seek_timer, self.seek_gen = None, None, 0
         self.seek_queued, self.seek_until = False, 0
         self.art_cache = {}
@@ -1350,9 +1355,17 @@ class App(Gtk.Window):
 
     def media_tick(self):
         visible = self.stack.get_visible_child_name() == "media" or self.pl.get("active")
-        if visible and not self.is_minimized():
-            in_bg(lambda: api("/api/player"), self.on_player, lambda e: None)
+        if visible and not self.is_minimized() and not self.player_busy:
+            self.player_busy = True         # nie zwei Abfragen gleichzeitig
+            in_bg(lambda: api("/api/player", 10), self.player_done, self.player_failed)
         return True
+
+    def player_done(self, pl):
+        self.player_busy = False
+        self.on_player(pl)
+
+    def player_failed(self, _e):
+        self.player_busy = False
 
     def media_refresh(self):
         if not self.lib_items and not self.lib_loading:
@@ -1617,6 +1630,7 @@ class App(Gtk.Window):
             row.pack_start(btn, True, True, 0)
         box.pack_start(row, False, False, 0)
         box.pack_start(Gtk.Separator(), False, False, 8)
+        box.pack_start(item("▁", "Minimieren", self.iconify), False, False, 0)
         box.pack_start(item("✕", "App beenden", Gtk.main_quit), False, False, 0)
         box.show_all()
         self.menu_pop.add(box)
@@ -2666,7 +2680,13 @@ class App(Gtk.Window):
         self.slow.put(lambda: m.run_scene(key))
 
     def vol_base(self):
-        return self.vol_target if time.time() < self.vol_local_until else self.st.get("volume")
+        """Wert, von dem aus verstellt wird; None, solange er nicht sicher aktuell ist."""
+        if time.time() < self.vol_local_until:
+            return self.vol_target
+        if time.time() - self.status_time > STATUS_FRESH:
+            self.refresh()          # z. B. nach der Bereitschaft: erst neu lesen
+            return None
+        return self.st.get("volume")
 
     def vol_step(self, d, first=True):
         base = self.vol_base()
@@ -2807,6 +2827,15 @@ class App(Gtk.Window):
             self.refresh()
         return True
 
+    def on_window_state(self, _w, ev):
+        """Zurück aus dem Minimieren: Inzwischen kann am Receiver verstellt worden sein."""
+        iconified = Gdk.WindowState.ICONIFIED
+        if ev.changed_mask & iconified and not ev.new_window_state & iconified:
+            self.status_time = self.vol_local_until = 0.0
+            self.status_valid_from = time.time()    # ältere, noch laufende Abfragen zählen nicht
+            self.refresh()
+        return False
+
     def refresh_once(self):
         self.refresh()
         return False
@@ -2816,6 +2845,7 @@ class App(Gtk.Window):
             self.status_again = True
             return
         self.status_busy = True
+        self.status_asked = time.time()
         in_bg(m.status, self.on_status_ok, self.on_status_err)
 
     def status_done(self):
@@ -2828,6 +2858,10 @@ class App(Gtk.Window):
         lost, self.status_fails = self.status_fails >= STATUS_FAILS, 0
         if lost:                        # wieder da → Meldung sicher entfernen
             self.show_err()
+        if self.status_asked >= self.status_valid_from:
+            self.status_time = self.status_asked
+        else:
+            self.status_again = True
         try:
             self.on_status(st)
         finally:
@@ -2984,6 +3018,27 @@ INPUT_ITEMS = [("SITV", "TV Audio"), ("SIGAME", "Game"), ("SISERVER", "Mediaserv
 INPUT_MATCH = {"SITV": "tvaudio", "SIGAME": "game", "SISERVER": "server"}
 MODE_KEYS = {c: k for c, _, k in m.MODES}
 
-if __name__ == "__main__":
-    App().show_all()
+APP_ID = "io.github.amplifie.MarantzTouchRemote"
+
+
+def main(make_window=App):
+    """Nur eine App gleichzeitig: Ein zweiter Start holt das vorhandene Fenster nach vorn
+    (wichtig, um die minimierte App per Touch zurückzubekommen)."""
+    single = Gio.Application(application_id=APP_ID)
+    try:
+        single.register(None)
+    except GLib.Error:                      # ohne Sitzungsbus: einfach normal starten
+        single = None
+    if single and single.get_is_remote():
+        single.activate()
+        single.get_dbus_connection().flush_sync(None)
+        return
+    win = make_window()
+    if single:
+        single.connect("activate", lambda *_: win.present())
+    win.show_all()
     Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

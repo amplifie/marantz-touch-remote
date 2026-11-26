@@ -151,6 +151,8 @@ def _parse_didl(didl: str) -> list:
             if res is not None:
                 entry["uri"] = (res.text or "").strip()
                 entry["duration"] = _secs(res.get("duration", ""))
+            if not entry.get("uri"):
+                entry["kind"] = "other"   # ohne Adresse: nicht abspielbar
             # Metadaten für den Receiver (einzelnes Item als eigenes DIDL-Dokument)
             entry["didl"] = ('<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
                              'xmlns:dc="http://purl.org/dc/elements/1.1/" '

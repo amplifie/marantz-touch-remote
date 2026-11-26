@@ -111,7 +111,7 @@ EN = {
     "auswählen. Pfeile gedrückt halten = weiter.":
         "The receiver's menu appears on the TV. Move with the arrows, select with OK. "
         "Hold an arrow to repeat.",
-    "Option": "Option", "Menü schließen": "Close menu", "MENÜ": "MENU", "App beenden": "Quit app", "Schließen & zurück zu {}": "Close & back to {}",
+    "Option": "Option", "Menü schließen": "Close menu", "MENÜ": "MENU", "App beenden": "Quit app", "Minimieren": "Minimize", "Schließen & zurück zu {}": "Close & back to {}",
     # --- Lautstärke-Warnungen ---
     "Achtung: Ab 80 wird es sehr laut.\nFür mehr einfach noch einmal drücken oder neu am Ring "
     "ansetzen.":

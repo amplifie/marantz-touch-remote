@@ -15,7 +15,8 @@ Receiver und Plex-Server werden im Heimnetz automatisch gesucht.
 Lautstärke: maximal 90 (MAX_VOL). Ab 80 (LOUD) sanfter Stopp mit Hinweis – mit neuem Druck geht es weiter.
 
 BEDIENUNG
-- Vollbild: F11 an/aus · Beenden: Esc oder ✕
+- Vollbild: F11 an/aus · Beenden: Esc oder Menü ☰
+- Minimieren: Menü ☰ → „Minimieren“; ein neuer Start holt die App zurück
 - Lautstärke: Streifen rechts: + / − antippen (halten = weiter) oder senkrecht wischen
   (Wischen endet bei 60, darüber mit „+“) – oder den Ring mit dem Finger drehen
 - Mediathek: Titel antippen = sofort abspielen, Balken antippen = spulen
