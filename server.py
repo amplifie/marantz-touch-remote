@@ -425,7 +425,7 @@ def artists():
     if not folder:
         raise RuntimeError("Künstlerliste in Plex nicht gefunden")
     _artists["list"] = [{"id": a["id"], "title": a["title"]}
-                        for a in upnp.browse_all(folder["id"]) if a["kind"] == "folder"]
+                        for a in upnp.browse_all(folder["id"], 20000) if a["kind"] == "folder"]
     _artists["t"] = time.time()
     return _artists["list"]
 
@@ -441,6 +441,23 @@ def artist_tracks(artist_id, limit=400):
         if len(tracks) >= limit:
             break
     return tracks[:limit]
+
+
+PLAY_MAX = 2000     # höchstens so viele Einträge in die Warteschlange (Speicher)
+PLAY_BEFORE = 200   # davon liegen bei sehr großen Ordnern so viele vor dem angetippten Titel
+
+
+def folder_tracks(parent, item=None, pos=0):
+    """Titel eines Ordners und Nummer des gewünschten. pos = Zeile in der Liste der App;
+    bei sehr großen Ordnern beginnt die Warteschlange kurz davor."""
+    start = pos - PLAY_BEFORE if pos >= PLAY_MAX - PLAY_BEFORE else 0
+    tracks = [i for i in upnp.browse_all(parent, PLAY_MAX, start) if i["kind"] == "track"]
+    if item is None:
+        return tracks, 0
+    idx = next((n for n, t in enumerate(tracks) if t["id"] == item), None)
+    if idx is None and tracks:          # nie stillschweigend einen anderen Titel abspielen
+        raise LookupError("Titel nicht gefunden")
+    return tracks, idx or 0
 
 
 def public(item):
@@ -464,18 +481,20 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass                            # App wurde inzwischen geschlossen
 
-    def _from_browser_page(self):
-        """True bei Anfragen, die eine Webseite im Browser ausgelöst haben könnte.
+    def _foreign_request(self):
+        """True, wenn die Anfrage nicht von der App oder dem Startbildschirm stammt.
 
-        Die App und der Startbildschirm schicken weder Origin noch Sec-Fetch-Site.
+        Beide schicken den eigenen Kopf X-Marantz. Webseiten dürfen ihn nicht setzen, und auch
+        Adressen aus dem Heimnetz (Cover, Plex-Suche, Weiterleitungen) tragen ihn nicht.
         Die Host-Prüfung hält Seiten ab, die ihren Namen auf 127.0.0.1 umbiegen."""
         port = self.server.server_port
         return (self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}")
+                or self.headers.get("X-Marantz") != "1"
                 or self.headers.get("Origin") is not None
-                or self.headers.get("Sec-Fetch-Site") not in (None, "none"))
+                or self.headers.get("Sec-Fetch-Site") is not None)
 
     def do_GET(self):
-        if self._from_browser_page():
+        if self._foreign_request():
             return self._json({"error": "Zugriff nicht erlaubt"}, 403)
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
@@ -523,11 +542,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             # ----- Musik-Bibliothek & Wiedergabe -----
             elif u.path == "/api/lib":
-                r = upnp.browse(q.get("id", "0"), int(q.get("start", 0)), int(q.get("count", 200)))
+                count = max(1, min(200, int(q.get("count", 200))))     # 0 hieße „alles“
+                r = upnp.browse(q.get("id", "0"), int(q.get("start", 0)), count)
                 self._json({"items": [public(i) for i in r["items"]], "total": r["total"]})
             elif u.path == "/api/play":
-                tracks = [i for i in upnp.browse_all(q["parent"]) if i["kind"] == "track"]
-                idx = next((n for n, t in enumerate(tracks) if t["id"] == q.get("item")), 0)
+                try:
+                    tracks, idx = folder_tracks(q["parent"], q.get("item"),
+                                                max(0, int(q.get("pos", 0))))
+                except LookupError as e:
+                    return self._json({"error": str(e), "source": "plex"}, 404)
                 if not tracks:
                     return self._json({"error": "Keine abspielbaren Titel"}, 400)
                 player.start(tracks, idx)

@@ -662,6 +662,9 @@ class Worker:
 
 
 SERVER = "http://127.0.0.1:8080"   # Hintergrunddienst (Bibliothek + Wiedergabe)
+LIB_PAGE = 60       # Einträge je Nachladen in der Mediathek (mehr lässt die Oberfläche stocken)
+COVER_BYTES = 8 * 1024 * 1024
+COVER_PIXELS = 16_000_000          # größere Bilder gar nicht erst entpacken
 SEEK_DELAY = 300    # ms Ruhe nach dem letzten Tipp auf den Balken, dann spulen
 STATUS_FAILS = 3    # so viele Fehlabfragen in Folge, bis "Keine Verbindung" erscheint
 
@@ -676,7 +679,8 @@ class ServiceError(RuntimeError):
 
 def api(path):
     try:
-        return json.loads(urllib.request.urlopen(SERVER + path, timeout=60).read())
+        req = urllib.request.Request(SERVER + path, headers={"X-Marantz": "1"})
+        return json.loads(urllib.request.urlopen(req, timeout=60).read())
     except urllib.error.HTTPError as e:
         try:                                    # echten Fehlertext aus der Antwort lesen
             r = json.loads(e.read())
@@ -693,6 +697,28 @@ def err_text(e):
     head = {"receiver": "Receiver-Fehler: {}", "plex": "Plex-Fehler: {}",
             "dienst": "Fehler im Hintergrunddienst: {}"}.get(source, "Fehler: {}")
     return _(head).format(_(str(e)))
+
+
+def load_pixbuf(url):
+    """Bild aus dem Netz laden – mit Grenzen für Dateigröße und Bildfläche."""
+    data = m.read_limited(urllib.request.urlopen(url, timeout=6), COVER_BYTES)
+    loader = GdkPixbuf.PixbufLoader()
+
+    def check(ld, w, h):
+        if w * h > COVER_PIXELS:
+            ld.set_size(0, 0)               # bricht das Entpacken mit einem Fehler ab
+    loader.connect("size-prepared", check)
+    try:
+        loader.write(data)
+    finally:
+        try:
+            loader.close()
+        except GLib.Error:
+            pass
+    pb = loader.get_pixbuf()
+    if pb is None:
+        raise ValueError("Bild nicht lesbar oder zu groß")
+    return pb
 
 
 def in_bg(fn, done=None, err=None):
@@ -722,7 +748,11 @@ class App(Gtk.Window):
         self.err_timer = None
         self.status_busy = self.status_again = False
         self.status_fails = 0
-        self.worker = Worker(self.show_err, self.after_commands)
+        # Drei getrennte Warteschlangen, damit Lautstärke und Stumm nie warten müssen:
+        self.worker = Worker(self.show_err, self.after_commands)    # kurze Befehle an den Receiver
+        self.service = Worker(self.show_err, self.after_slow)       # Hintergrunddienst/Mediathek
+        self.slow = Worker(self.show_err, self.after_slow)          # Szenen und Grafik-EQ
+        self.vol_user_gen = 0        # zählt Lautstärke-Eingriffe von Hand
 
         self.css_prov = Gtk.CssProvider()
         self.css_prov.load_from_data(scaled_css(1.0))
@@ -1009,6 +1039,7 @@ class App(Gtk.Window):
     def build_media(self):
         self.lib_path = [("0", "Bibliothek")]
         self.lib_items, self.lib_total, self.lib_loading = [], 0, False
+        self.lib_gen = 0            # zählt geöffnete Ordner (alte Antworten verwerfen)
         self.pl = {}
         self.pl_error_id = None
         self.seek_target, self.seek_timer, self.seek_gen = None, None, 0
@@ -1141,6 +1172,8 @@ class App(Gtk.Window):
         if push:
             self.lib_path.append((oid, title))
         self.lib_items, self.lib_total = [], 0
+        self.lib_gen += 1
+        self.lib_loading = False        # eine noch laufende Abfrage gehört zum alten Stand
         for r in self.lib_list.get_children():
             self.lib_list.remove(r)
         self.media_title.set_text(tr(title))
@@ -1155,25 +1188,29 @@ class App(Gtk.Window):
         oid = self.lib_path[-1][0]
         start = len(self.lib_items)
         self.lib_loading = True
+        gen = self.lib_gen
 
         def done(r):
-            self.lib_loading = False
-            if self.lib_path[-1][0] != oid:
+            if gen != self.lib_gen:
                 return
+            self.lib_loading = False
             self.lib_total = r["total"]
             for it in r["items"]:
                 self.lib_items.append(it)
-                self.lib_list.add(self.lib_row(it))
-            self.lib_list.show_all()
+                row = self.lib_row(it)
+                self.lib_list.add(row)
+                row.show_all()
             n = self.lib_total
             self.media_pos.set_text("leer" if not n else _("{} Einträge").format(n) if n != 1 else "1 Eintrag")
             self.mark_playing()
 
         def fail(e):
+            if gen != self.lib_gen:
+                return
             self.lib_loading = False
             self.media_pos.set_text("")
             self.show_err(e)
-        in_bg(lambda: api(f"/api/lib?id={urllib.parse.quote(oid)}&start={start}&count=150"),
+        in_bg(lambda: api(f"/api/lib?id={urllib.parse.quote(oid)}&start={start}&count={LIB_PAGE}"),
               done, fail)
 
     def lib_row(self, it):
@@ -1218,7 +1255,7 @@ class App(Gtk.Window):
         if it["kind"] == "folder":
             self.lib_open(it["id"], it["title"])
         elif it["kind"] == "track":
-            parent = self.lib_path[-1][0]
+            parent, pos = self.lib_path[-1][0], row.get_index()
             self.seek_cancel()              # altes Spulziel gehört nicht zum neuen Titel
             self.pl.update(id=it["id"], title=it["title"], artist=it.get("artist"),
                            album=it.get("album"), art=it.get("art"), state="PLAYING",
@@ -1228,8 +1265,8 @@ class App(Gtk.Window):
             self.pl_hold_until = time.time() + 6
             self.media_stack.set_visible_child_name("now")   # sofort Cover, Zeit, Spulen zeigen
             self.pl_render()
-            self.worker.put(lambda: api(f"/api/play?parent={urllib.parse.quote(parent)}"
-                                        f"&item={urllib.parse.quote(it['id'])}"))
+            self.service.put(lambda: api(f"/api/play?parent={urllib.parse.quote(parent)}"
+                                         f"&item={urllib.parse.quote(it['id'])}&pos={pos}"))
 
     def playing_id(self):
         return self.pl.get("id") if self.pl.get("active") else None
@@ -1251,7 +1288,7 @@ class App(Gtk.Window):
             self.pl.update(state="STOPPED", active=False)
         self.pl_render()
         q = f"/api/ctl?a={action}"
-        self.worker.put(lambda: api(q))
+        self.service.put(lambda: api(q))
 
     # ----- Spulen: bei schnellem Tippen nur das letzte Ziel senden -----
     def seek_to(self, t):
@@ -1270,10 +1307,10 @@ class App(Gtk.Window):
         if not self.seek_queued:        # wartet schon ein Auftrag, nimmt er das neue Ziel mit
             self.seek_queued = True
             gen = self.seek_gen
-            self.worker.put(lambda: self.seek_job(gen))
+            self.service.put(lambda: self.seek_job(gen))
         return False
 
-    def seek_job(self, gen):            # läuft im Worker-Thread
+    def seek_job(self, gen):            # läuft im Dienst-Thread
         if gen != self.seek_gen:        # inzwischen anderer Titel / abgebrochen
             return
         t, self.seek_queued = self.seek_target, False
@@ -1384,13 +1421,9 @@ class App(Gtk.Window):
         target = max(480, self.np_cover.get_allocated_width())   # nicht unscharf auf großen Schirmen
 
         def fetch():
-            data = urllib.request.urlopen(url, timeout=6).read()
-            loader = GdkPixbuf.PixbufLoader()
-            loader.write(data)
-            loader.close()
-            pb = loader.get_pixbuf()
+            pb = load_pixbuf(url)
             s = target / max(pb.get_width(), pb.get_height())
-            return pb.scale_simple(int(pb.get_width() * s), int(pb.get_height() * s),
+            return pb.scale_simple(max(1, int(pb.get_width() * s)), max(1, int(pb.get_height() * s)),
                                    GdkPixbuf.InterpType.BILINEAR)
 
         def done(pb):
@@ -1642,7 +1675,8 @@ class App(Gtk.Window):
     def run_profile(self, idx):
         p = self.config["profiles"][idx]
         self.status_sub.set_text(_("Szene „{}“ wird eingestellt …").format(_(p.get("name", ""))))
-        self.worker.put(lambda: m.run_profile(p))
+        gen = self.vol_user_gen
+        self.slow.put(lambda: m.run_profile(p, lambda: gen != self.vol_user_gen))
 
     def chip_grid(self, items, cols, cb):
         """Raster aus Auswahl-Knöpfen; items = [(wert, text)] → (grid, {wert: button})"""
@@ -1951,7 +1985,9 @@ class App(Gtk.Window):
                                 lambda v: "PSGEQ " + ("ON" if v else "OFF"))
         self.geq_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         gc.pack_start(self.geq_box, True, True, 0)
-        self.geq = {"group": "FRO", "timer": None, "updating": False, "confirm0": False}
+        # loaded = Gruppe, deren echte Werte die Regler zeigen (None: gesperrt, nichts senden)
+        self.geq = {"group": "FRO", "loaded": None, "seq": 0, "timer": None, "updating": False,
+                    "confirm0": False}
         self.geq_box.pack_start(label("Lautsprecher", "status-sub", xalign=0), False, False, 6)
         seg, self.geq_group_btns = segmented(
             [("FRO", "Front"), ("CEN", "Center"), ("SUR", "Surround"), ("FRH", "Höhe v."),
@@ -1976,11 +2012,14 @@ class App(Gtk.Window):
                            False, False, 0)
             self.geq_scales[b], self.geq_vals[b] = sc, val
             bands.pack_start(col, True, True, 0)
+        bands.set_sensitive(False)
+        self.geq_bands = bands
         self.geq_box.pack_start(bands, True, True, 10)
         foot = Gtk.Box(spacing=12)
         self.geq_status = label("", "status-sub", xalign=0)
         foot.pack_start(self.geq_status, True, True, 0)
         self.geq_zero_btn = button("Alle auf 0", self.geq_zero, "toggle-sm")
+        self.geq_zero_btn.set_sensitive(False)
         foot.pack_start(self.geq_zero_btn, False, False, 0)
         self.geq_box.pack_start(foot, False, False, 0)
         h2 = label("Wirkt nur bei MultEQ „Aus“ (Seite Klang & Pegel). Änderungen werden nach "
@@ -1993,9 +2032,37 @@ class App(Gtk.Window):
     # ----- Grafik-EQ -----
     def geq_load(self, group=None):
         group = group or self.geq["group"]
+        if self.geq["timer"]:            # offene Änderung zuerst speichern
+            GLib.source_remove(self.geq["timer"])
+            self.geq_send()
+        self.geq_lock_ui(None)
+        self.geq["seq"] += 1
+        seq = self.geq["seq"]
         self.geq_status.set_text("lädt …")
-        in_bg(lambda: m.geq_read(group), self.geq_show,
-              lambda e: self.geq_status.set_text(_("Nicht erreichbar: {}").format(_(str(e)))))
+
+        def done(st):
+            if seq == self.geq["seq"]:
+                self.geq_show(st)
+
+        def fail(e):
+            if seq == self.geq["seq"]:
+                self.geq_status.set_text(_("Nicht erreichbar: {}").format(_(str(e))))
+        # über dieselbe Warteschlange wie das Speichern: erst speichern, dann lesen
+        self.slow.put(lambda: self.geq_job(lambda: m.geq_read(group), done, fail))
+
+    @staticmethod
+    def geq_job(fn, done, fail):         # läuft im Szenen/EQ-Thread
+        try:
+            r = fn()
+        except Exception as e:  # noqa: BLE001
+            GLib.idle_add(fail, e)
+        else:
+            GLib.idle_add(done, r)
+
+    def geq_lock_ui(self, loaded):
+        self.geq["loaded"] = loaded
+        self.geq_bands.set_sensitive(loaded is not None)
+        self.geq_zero_btn.set_sensitive(loaded is not None)
 
     def geq_show(self, st):
         self.geq["group"] = st["group"]
@@ -2006,6 +2073,7 @@ class App(Gtk.Window):
             self.geq_vals[b].set_text(self.geq_fmt(v))
         self.geq["updating"] = False
         self.geq_status.set_text("")
+        self.geq_lock_ui(st["group"])
         return False
 
     @staticmethod
@@ -2016,7 +2084,7 @@ class App(Gtk.Window):
         v = round(scale.get_value() * 2) / 2
         self.geq_vals[band].set_text(self.geq_fmt(v))
         set_cls(self.geq_vals[band], "changed", v != 0)
-        if self.geq["updating"]:
+        if self.geq["updating"] or self.geq["loaded"] is None:
             return
         self.geq_status.set_text("…")
         if self.geq["timer"]:
@@ -2025,7 +2093,9 @@ class App(Gtk.Window):
 
     def geq_send(self):
         self.geq["timer"] = None
-        group = self.geq["group"]
+        group = self.geq["loaded"]
+        if group is None:               # ohne geladene Werte niemals schreiben
+            return False
         vals = {b: round(sc.get_value() * 2) / 2 for b, sc in self.geq_scales.items()}
         self.geq_status.set_text("speichere …")
 
@@ -2035,10 +2105,12 @@ class App(Gtk.Window):
                 GLib.idle_add(self.geq_saved, st, vals)
             except Exception as e:  # noqa: BLE001
                 GLib.idle_add(self.geq_status.set_text, _("Fehler: {}").format(_(str(e))))
-        self.worker.put(job)
+        self.slow.put(job)
         return False
 
     def geq_saved(self, st, sent):
+        if st["group"] != self.geq["loaded"]:   # inzwischen andere Gruppe: Anzeige nicht anfassen
+            return False
         ok = all(abs(st["vals"][b] - sent[b]) < 0.01 for b in sent)
         self.geq_status.set_text("Gespeichert ✓" if ok else "Receiver hat andere Werte gemeldet")
         if not ok and not self.geq["timer"]:
@@ -2046,9 +2118,6 @@ class App(Gtk.Window):
         return False
 
     def geq_switch(self, group):
-        if self.geq["timer"]:            # offene Änderung zuerst speichern
-            GLib.source_remove(self.geq["timer"])
-            self.geq_send()
         mark(self.geq_group_btns, group)
         self.geq_load(group)
 
@@ -2381,9 +2450,14 @@ class App(Gtk.Window):
         said, a = f"„{text}“", c.get("aktion")
         # Szenen auch über ihren selbst gewählten Namen aufrufen („Kino“, „Party“ …)
         norm = lambda x: "".join(ch for ch in x.lower() if ch.isalnum())
+        # Ein echter Befehl („stopp die Musik“) hat Vorrang; der Name zählt dann nur, wenn der
+        # Satz praktisch nur aus ihm besteht.
+        fill = ("bitte", "szene", "starte", "starten", "aktiviere", "mach", "mal")
+        core = "".join(norm(w) for w in text.split() if norm(w) not in fill)
+        loose = a is None or (a == "szene" and c.get("wert") != "aus")
         for i, p in enumerate(self.config["profiles"]):
             n = norm(p.get("name", ""))
-            if len(n) >= 3 and n in norm(text) and a not in ("kuenstler",):
+            if len(n) >= 3 and (core == n or (loose and n in norm(text))):
                 self.run_profile(i)
                 return self.toast(f"{said}\n→ {p.get('name')}")
         msg = None
@@ -2434,7 +2508,7 @@ class App(Gtk.Window):
         self.show_page("media")
         self.media_stack.set_visible_child_name("now")
         q = "/api/play_artist?id=" + urllib.parse.quote(k["id"]) + ("&shuffle=1" if c["zufall"] else "")
-        self.worker.put(lambda: api(q))
+        self.service.put(lambda: api(q))
         return False
 
     def toast_hide(self):
@@ -2536,6 +2610,9 @@ class App(Gtk.Window):
         self.err_lbl.set_text("")
         return False
 
+    def after_slow(self):
+        GLib.timeout_add(400, self.refresh_once)
+
     def after_commands(self):
         GLib.timeout_add(400, self.refresh_once)
         if self.reload_settings:
@@ -2559,7 +2636,7 @@ class App(Gtk.Window):
 
     def scene(self, key, title):
         self.status_sub.set_text(_("Szene „{}“ wird eingestellt …").format(_(title)))
-        self.worker.put(lambda: m.run_scene(key))
+        self.slow.put(lambda: m.run_scene(key))
 
     def vol_base(self):
         return self.vol_target if time.time() < self.vol_local_until else self.st.get("volume")
@@ -2645,6 +2722,7 @@ class App(Gtk.Window):
 
     def set_vol(self, v, send=True):
         v = max(0, min(m.MAX_VOL, int(v)))
+        self.vol_user_gen += 1          # eine laufende Szene überschreibt das nicht mehr
         start = getattr(self, "gesture_start", None)
         start = 0 if start is None else start
         if v > m.LOUD and start < m.LOUD:

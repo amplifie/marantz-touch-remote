@@ -23,6 +23,7 @@ AVT = "urn:schemas-upnp-org:service:AVTransport:1"
 PLEX_FILE = os.path.expanduser("~/.config/marantz/plex")
 
 _plex = {"ctrl": None}
+MAX_SOAP = 8 * 1024 * 1024   # eine Seite mit 200 Titeln hat nur einige hundert KB
 
 
 # ---------- SOAP ----------
@@ -35,9 +36,9 @@ def soap(url: str, service: str, action: str, args: dict, timeout: float = 6) ->
     req = urllib.request.Request(url, data=env.encode("utf-8"), headers={
         "Content-Type": 'text/xml; charset="utf-8"', "SOAPACTION": f'"{service}#{action}"'})
     try:
-        raw = urllib.request.urlopen(req, timeout=timeout).read()
+        raw = m.read_limited(urllib.request.urlopen(req, timeout=timeout), MAX_SOAP)
     except urllib.error.HTTPError as e:
-        txt = e.read().decode("utf-8", "ignore")
+        txt = e.read(65536).decode("utf-8", "ignore")
         code = re.search(r"<errorCode>(\d+)", txt)
         desc = re.search(r"<errorDescription>([^<]*)", txt)
         raise RuntimeError(f"UPnP-Fehler {code.group(1) if code else e.code}: "
@@ -77,7 +78,7 @@ def _find_plex() -> str:
         s.close()
     for loc in filter(_is_web, locations):
         try:
-            desc = urllib.request.urlopen(loc, timeout=3).read().decode("utf-8", "ignore")
+            desc = m.read_limited(urllib.request.urlopen(loc, timeout=3)).decode("utf-8", "ignore")
         except OSError:
             continue
         if "plex" not in desc.lower():
@@ -172,9 +173,10 @@ def browse(object_id: str = "0", start: int = 0, count: int = 200) -> dict:
     return {"items": _parse_didl(r.get("Result", "")), "total": int(r.get("TotalMatches") or 0)}
 
 
-def browse_all(object_id: str, limit: int = 2000) -> list:
-    items, start = [], 0
-    while start < limit:
+def browse_all(object_id: str, limit: int = 2000, start: int = 0) -> list:
+    """Bis zu limit Einträge ab Position start."""
+    items, end = [], start + limit
+    while start < end:
         r = browse(object_id, start, 200)
         items += r["items"]
         start += len(r["items"])

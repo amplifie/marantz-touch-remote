@@ -80,11 +80,22 @@ except OSError:
     pass
 
 
+MAX_REPLY = 2 * 1024 * 1024   # größere Antworten aus dem Netz werden abgewiesen (Speicher schonen)
+
+
+def read_limited(resp, limit: int = MAX_REPLY) -> bytes:
+    """Antwort lesen, aber höchstens limit Bytes (OSError, wenn sie größer ist)."""
+    data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise OSError("Antwort aus dem Netz ist zu groß")
+    return data
+
+
 # ---------- Receiver im Netz finden ----------
 def _is_marantz(ip: str) -> bool:
     try:
-        raw = urllib.request.urlopen(
-            f"http://{ip}/goform/formMainZone_MainZoneXml.xml", timeout=2).read()
+        raw = read_limited(urllib.request.urlopen(
+            f"http://{ip}/goform/formMainZone_MainZoneXml.xml", timeout=2))
         return b"MARANTZ" in raw.upper()
     except Exception:  # noqa: BLE001
         return False
@@ -167,10 +178,10 @@ def _get(path: str, timeout: float = 4) -> bytes:
     """HTTP-Abruf beim Receiver; ist er nicht erreichbar, wird er einmal gesucht."""
     _ensure_receiver()
     try:
-        return urllib.request.urlopen(f"http://{RECEIVER}{path}", timeout=timeout).read()
+        return read_limited(urllib.request.urlopen(f"http://{RECEIVER}{path}", timeout=timeout))
     except OSError:
         if find_receiver():
-            return urllib.request.urlopen(f"http://{RECEIVER}{path}", timeout=timeout).read()
+            return read_limited(urllib.request.urlopen(f"http://{RECEIVER}{path}", timeout=timeout))
         raise
 
 
@@ -301,7 +312,8 @@ def _geq_post(st: dict, group: str, vals: dict, apply: bool) -> None:
             "setAdjustEQ": "Set" if apply else "off", "setGEQCurveCopy": "off",
             "setGEQSetDefaults": "off"}
     data = urllib.parse.urlencode(form).encode()
-    urllib.request.urlopen(f"http://{RECEIVER}{GEQ_PAGE}/s_audio.asp", data=data, timeout=8).read()
+    read_limited(urllib.request.urlopen(f"http://{RECEIVER}{GEQ_PAGE}/s_audio.asp", data=data,
+                                        timeout=8))
     time.sleep(0.8)
 
 
@@ -435,7 +447,7 @@ def track_duration():
         f"http://{RECEIVER}:8080/AVTransport/ctrl", data=body,
         headers={"Content-Type": 'text/xml; charset="utf-8"',
                  "SOAPACTION": '"urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo"'})
-    raw = urllib.request.urlopen(req, timeout=3).read().decode("utf-8", "ignore")
+    raw = read_limited(urllib.request.urlopen(req, timeout=3)).decode("utf-8", "ignore")
     m_ = re.search(r"<TrackDuration>(\d+:\d{2}:\d{2})</TrackDuration>", raw)
     if not m_:
         return None
@@ -571,8 +583,9 @@ def profile_subtitle(p: dict) -> str:
     return source_name(inp) if inp.startswith("SI") and ALLOWED.match(inp) else "Eingang bleibt"
 
 
-def run_profile(p: dict) -> None:
-    """Eine frei belegte Szene ausführen."""
+def run_profile(p: dict, volume_changed=None) -> None:
+    """Eine frei belegte Szene ausführen. volume_changed() = True, wenn inzwischen von Hand an
+    der Lautstärke gedreht wurde – dann überschreibt die Szene sie nicht mehr."""
     if p.get("power") == "off":
         send("ZMOFF")
         return
@@ -586,7 +599,7 @@ def run_profile(p: dict) -> None:
     if p.get("mode") and str(p["mode"]).startswith("MS") and ALLOWED.match(p["mode"]):
         send(p["mode"])
         time.sleep(1.0)
-    if isinstance(p.get("volume"), (int, float)):
+    if isinstance(p.get("volume"), (int, float)) and not (volume_changed and volume_changed()):
         send("MV%02d" % max(0, min(LOUD, int(p["volume"]))))
 
 
@@ -598,7 +611,7 @@ def model_name() -> str:
     if _model["name"]:
         return _model["name"]
     _ensure_receiver()
-    raw = urllib.request.urlopen(f"http://{RECEIVER}:8080/description.xml", timeout=4).read()
+    raw = read_limited(urllib.request.urlopen(f"http://{RECEIVER}:8080/description.xml", timeout=4))
     m_ = re.search(rb"<modelName>\*?([^<]+)</modelName>", raw)
     _model["name"] = m_.group(1).decode("utf-8", "ignore").strip() if m_ else "Receiver"
     return _model["name"]
