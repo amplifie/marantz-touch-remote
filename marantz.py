@@ -494,6 +494,22 @@ def mode_key(surround: str) -> str:
     return ""
 
 
+GROUP_CODES = {"MOV": "MSMOVIE", "MUS": "MSMUSIC", "GAM": "MSGAME", "PUR": "MSPURE DIRECT"}
+
+
+def sound_group(surround: str = "") -> str:
+    """Aktive Sound-Mode-Gruppe als Befehl (z. B. "MSMOVIE"). Receiver meldet sie per Telnet
+    („SSSMG MOV“); falls nicht, gehören Direct/Pure Direct zur Gruppe Pure."""
+    try:
+        raw = _telnet(["SSSMG ?"], b"SSSMG", wait=1.5)
+        m_ = re.search(r"SSSMG\s*([A-Z]{3})", raw)
+        if m_ and m_.group(1) in GROUP_CODES:
+            return GROUP_CODES[m_.group(1)]
+    except OSError:
+        pass
+    return "MSPURE DIRECT" if mode_key(surround) in ("pure", "direct") else ""
+
+
 # ---------- Einstellungen: frei belegbare Szenen und Eingangsleiste ----------
 CONFIG_FILE = os.path.expanduser("~/.config/marantz/config.json")
 DEFAULT_CONFIG = {

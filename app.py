@@ -545,7 +545,7 @@ class App(Gtk.Window):
         self.in_btns = {}
         self.refresh_inputs()
         page.pack_start(label("SOUND MODE", "cap"), False, False, 6)
-        seg, _ = segmented(m.MODE_GROUPS, self.cmd)
+        seg, self.group_btns = segmented(m.MODE_GROUPS, self.group_press)
         add_cls(seg, "compact")
         page.pack_start(seg, False, False, 0)
         page.pack_start(label("KLANGMODUS", "cap"), False, False, 6)
@@ -1034,6 +1034,18 @@ class App(Gtk.Window):
         self.cmd(code)
         if code == "SISERVER":
             self.show_page("media")
+
+    # ----- Sound-Mode-Gruppe (Film/Musik/Spiel/Pure) -----
+    def group_press(self, code):
+        mark(self.group_btns, code)            # sofort leuchten lassen
+        self.cmd(code)
+        GLib.timeout_add(1500, self.group_refresh)
+
+    def group_refresh(self):
+        surround = self.st.get("surround", "")
+        in_bg(lambda: m.sound_group(surround), lambda g: mark(self.group_btns, g) or False,
+              lambda e: None)
+        return False
 
     # ----- Frei belegbare Szenen -----
     def refresh_scenes(self):
@@ -1942,6 +1954,14 @@ class App(Gtk.Window):
             n = m.source_name(code)
             names = {n.lower().replace(" ", ""), i18n.tr_lang(n, "en").lower().replace(" ", "")}
             set_cls(b, "sel", on and cur_in in names)
+        prev = getattr(self, "_group_key", None)
+        gkey = (st.get("surround"), st.get("input"), st.get("power"))
+        if gkey != prev:
+            self._group_key = gkey
+            if on:
+                self.group_refresh()
+            else:
+                mark(self.group_btns, None)
         key = m.mode_key(st["surround"])
         for code, b in self.mode_btns.items():
             set_cls(b, "sel", on and MODE_KEYS[code] == key)

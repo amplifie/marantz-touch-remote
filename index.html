@@ -209,6 +209,8 @@ function render() {
               s.includes('dts') ? 'dts' : (s.includes('dolby') || s.includes('atmos')) ? 'dolby' :
               s.includes('stereo') ? 'stereo' : s.includes('auto') ? 'auto' : '';
   $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.ms === key));
+  const gk = [st.power, st.input, st.surround].join('|');
+  if (gk !== lastGroupKey) { lastGroupKey = gk; loadGroup(); }
   const sEl = $('#state'); sEl.textContent = '';
   const bEl = document.createElement('b'); bEl.textContent = st.power ? t(st.input) : 'Standby'; sEl.append(bEl);
   if (st.power) sEl.append(' · ' + st.surround);
@@ -274,9 +276,20 @@ document.addEventListener('click', e => {
     if (k === 'swl') cfg.swl = nv; else cfg.levels[k] = nv;
     renderSettings();
     cmd((k === 'swl' ? 'PSSWL ' : 'CV' + k + ' ') + fmt(nv));
+  } else if (b.dataset.grp) {
+    $$('#groups button').forEach(x => x.classList.toggle('sel', x === b));
+    cmd(b.dataset.cmd); setTimeout(() => { lastGroupKey = null; }, 1500);
   } else if (b.dataset.cmd) cmd(b.dataset.cmd, !!b.closest('[data-set]'));
 });
 
+let lastGroupKey = null;
+async function loadGroup() {
+  if (!st.power) { $$('#groups button').forEach(b => b.classList.remove('sel')); return; }
+  try {
+    const r = await api('/api/group?s=' + encodeURIComponent(st.surround || ''));
+    $$('#groups button').forEach(b => b.classList.toggle('sel', b.dataset.grp === r.group));
+  } catch (e) { /* nicht schlimm */ }
+}
 function mk(parent, text, data) {
   const b = document.createElement('button'); b.textContent = text;
   Object.entries(data).forEach(([k, v]) => b.dataset[k] = v); parent.append(b);
@@ -292,7 +305,7 @@ async function loadConfig() {
       $('#scenes').lastChild.append(document.createElement('br'), sub);
     });
     c.inputs.forEach(x => mk($('#inputs'), x.name, {cmd: x.cmd, in: x.match.join('|')}));
-    c.groups.forEach(x => mk($('#groups'), x.name, {cmd: x.cmd}));
+    c.groups.forEach(x => mk($('#groups'), x.name, {cmd: x.cmd, grp: x.cmd}));
     c.modes.forEach(x => mk($('#modes'), x.name, {cmd: x.cmd, ms: x.key}));
     render();
   } catch (e) { showErr(e); }

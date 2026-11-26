@@ -205,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             elif u.path == "/api/status":
                 self._json(m.status())
+            elif u.path == "/api/group":
+                self._json({"group": m.sound_group(q.get("s", ""))})
             elif u.path == "/api/settings":
                 self._json(m.settings())
             elif u.path == "/api/cmd":
