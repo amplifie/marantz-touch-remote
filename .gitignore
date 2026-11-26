@@ -1,0 +1,6 @@
+# Zwischendateien
+__pycache__/
+*.pyc
+*.tar.gz
+# Persönliche Sicherungen (z. B. eigene EQ-Werte)
+geq/

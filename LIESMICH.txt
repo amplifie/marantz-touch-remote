@@ -1,0 +1,28 @@
+MARANTZ-FERNBEDIENUNG
+=====================
+
+Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem SR7010)
+mit Plex-Mediathek. Läuft unter Linux (z. B. Linux Mint, Ubuntu, Debian).
+
+INSTALLIEREN
+1. Paket entpacken (Doppelklick oder: tar xzf marantz-fernbedienung.tar.gz)
+2. Terminal im entpackten Ordner öffnen und eingeben:
+       ./install.sh
+   Falls Bausteine fehlen, nennt das Skript den passenden sudo-Befehl.
+3. Im Startmenü „Marantz“ starten.
+
+Receiver und Plex-Server werden im Heimnetz automatisch gesucht.
+Lautstärke: maximal 90 (MAX_VOL). Ab 80 (LOUD) sanfter Stopp mit Hinweis – mit neuem Druck geht es weiter.
+
+BEDIENUNG
+- Vollbild: F11 an/aus · Beenden: Esc oder ✕
+- Lautstärke: + / − (halten = weiter) oder Ring mit dem Finger drehen
+- Mediathek: Titel antippen = sofort abspielen, Balken antippen = spulen
+
+HANDY
+Die Webseite läuft auf Port 8080 des Rechners: http://<IP-des-Rechners>:8080
+Ist eine Firewall aktiv, Port freigeben, z. B.:
+    sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp
+
+ENTFERNEN
+    ./uninstall.sh

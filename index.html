@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0f12">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Marantz</title>
+<style>
+  :root { --bg:#0e0f12; --card:#1a1c21; --btn:#262930; --txt:#e8e8ea; --dim:#8b8e96; --acc:#d4a24c; --on:#3fb57a; --off:#c0453c; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); font:17px system-ui,sans-serif; }
+  body { padding:14px; padding-bottom:calc(14px + env(safe-area-inset-bottom)); max-width:1100px; margin:auto; }
+  header { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  #state { flex:1; font-size:.95rem; color:var(--dim); text-align:right; min-width:120px; }
+  #state b { color:var(--txt); }
+  .tab { background:var(--card); color:var(--dim); min-height:52px; padding:0 18px; }
+  .tab.sel { background:var(--btn); color:var(--txt); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  section { background:var(--card); border-radius:18px; padding:16px; }
+  section h2 { margin:0 0 12px; font-size:.8rem; text-transform:uppercase; letter-spacing:.12em; color:var(--dim); font-weight:600; }
+  .lbl { color:var(--dim); font-size:.9rem; margin:14px 0 8px; }
+  .lbl:first-of-type { margin-top:0; }
+  .row { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); }
+  button { background:var(--btn); color:var(--txt); border:0; border-radius:14px; font:inherit; font-weight:600;
+           min-height:64px; padding:8px; cursor:pointer; transition:transform .08s, background .15s; }
+  button:active { transform:scale(.96); background:#333741; }
+  button.sel { background:var(--acc); color:#1a1408; }
+  #power { min-height:52px; padding:0 18px; }
+  #power.on { background:var(--on); color:#08170f; }
+  #power.off { background:var(--off); color:#fff; }
+  .vol { display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:10px; align-items:center; }
+  .vol button { min-height:100px; font-size:2.4rem; }
+  #volnum { text-align:center; font-size:3.2rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  #volnum small { display:block; font-size:.85rem; color:var(--dim); font-weight:400; }
+  #mute { width:100%; margin-top:10px; min-height:58px; }
+  #mute.sel { background:var(--off); color:#fff; }
+  .scene button { min-height:88px; font-size:1.1rem; }
+  .lv { display:flex; align-items:center; gap:8px; padding:4px 0; }
+  .lv span.n { flex:1; }
+  .lv button { min-height:50px; width:48px; font-size:1rem; padding:0; }
+  .lv button.b3 { color:var(--acc); }
+  .lv span.v { width:76px; text-align:center; font-weight:700; font-variant-numeric:tabular-nums; }
+  .lv span.v.chg { color:var(--acc); }
+  .hint { color:#6d7079; font-size:.8rem; margin-top:12px; }
+  #warn { position:fixed; left:50%; top:calc(16px + env(safe-area-inset-top)); transform:translateX(-50%);
+          width:min(92vw,520px); background:rgba(60,22,18,.97); color:#ffe3dc; border:1px solid rgba(240,120,100,.6);
+          border-radius:18px; padding:16px 20px; text-align:center; font-weight:600; box-shadow:0 10px 40px rgba(0,0,0,.6); z-index:9; }
+  #err { color:#e06a60; min-height:1.2em; margin-top:10px; text-align:center; }
+  .busy { opacity:.55; pointer-events:none; }
+</style>
+</head>
+<body>
+<header>
+  <button class="tab sel" data-page="main">Bedienung</button>
+  <button class="tab" data-page="sound">Klang &amp; Pegel</button>
+  <div id="state">verbinde …</div>
+  <button id="power" class="off">⏻</button>
+</header>
+
+<div id="main" class="grid">
+  <section>
+    <h2>Lautstärke</h2>
+    <div class="vol">
+      <button data-vol="-2">−</button>
+      <div id="volnum">–<small>Lautstärke</small></div>
+      <button data-vol="2">+</button>
+    </div>
+    <button id="mute">Stumm</button>
+  </section>
+  <section class="scene">
+    <h2>Szenen</h2>
+    <div class="row">
+      <button data-scene="film">🎬 Filmabend</button>
+      <button data-scene="musik">🎵 Musik</button>
+      <button data-scene="aus">Alles aus</button>
+    </div>
+  </section>
+  <section>
+    <h2>Eingang</h2>
+    <div class="row" id="inputs">
+      <button data-cmd="SITV" data-in="tvaudio">TV Audio</button>
+      <button data-cmd="SIGAME" data-in="game">Game</button>
+      <button data-cmd="SISERVER" data-in="server">Mediaserver</button>
+    </div>
+  </section>
+  <section>
+    <h2>Klangmodus</h2>
+    <div class="row" id="modes">
+      <button data-cmd="MSDOLBY DIGITAL" data-ms="dolby">Dolby / Atmos</button>
+      <button data-cmd="MSSTEREO" data-ms="stereo">Stereo</button>
+      <button data-cmd="MSDIRECT" data-ms="direct">Direct</button>
+      <button data-cmd="MSPURE DIRECT" data-ms="pure">Pure Direct</button>
+      <button data-cmd="MSAUTO" data-ms="auto">Auto</button>
+    </div>
+  </section>
+</div>
+
+<div id="sound" class="grid" hidden>
+  <section>
+    <h2>Audyssey</h2>
+    <div class="lbl">MultEQ</div>
+    <div class="row" data-set="multeq">
+      <button data-cmd="PSMULTEQ:AUDYSSEY" data-v="AUDYSSEY">Audyssey</button>
+      <button data-cmd="PSMULTEQ:BYP.LR" data-v="BYP.LR">Byp. L/R</button>
+      <button data-cmd="PSMULTEQ:FLAT" data-v="FLAT">Flat</button>
+      <button data-cmd="PSMULTEQ:OFF" data-v="OFF">Aus</button>
+    </div>
+    <div class="lbl">Dynamic EQ</div>
+    <div class="row" data-set="dyneq">
+      <button data-cmd="PSDYNEQ ON" data-v="true">Ein</button>
+      <button data-cmd="PSDYNEQ OFF" data-v="false">Aus</button>
+    </div>
+    <div class="lbl">Referenzpegel-Offset (Dynamic EQ)</div>
+    <div class="row" data-set="reflev">
+      <button data-cmd="PSREFLEV 0" data-v="0">0 dB</button>
+      <button data-cmd="PSREFLEV 5" data-v="5">5 dB</button>
+      <button data-cmd="PSREFLEV 10" data-v="10">10 dB</button>
+      <button data-cmd="PSREFLEV 15" data-v="15">15 dB</button>
+    </div>
+    <div class="lbl">Dynamic Volume</div>
+    <div class="row" data-set="dynvol">
+      <button data-cmd="PSDYNVOL OFF" data-v="OFF">Aus</button>
+      <button data-cmd="PSDYNVOL LIT" data-v="LIT">Leicht</button>
+      <button data-cmd="PSDYNVOL MED" data-v="MED">Mittel</button>
+      <button data-cmd="PSDYNVOL HEV" data-v="HEV">Stark</button>
+    </div>
+    <div class="lbl">Cinema EQ</div>
+    <div class="row" data-set="cinemaeq">
+      <button data-cmd="PSCINEMA EQ.ON" data-v="true">Ein</button>
+      <button data-cmd="PSCINEMA EQ.OFF" data-v="false">Aus</button>
+    </div>
+    <div class="hint">Hinweis: In Direct / Pure Direct sind Audyssey und Cinema EQ vom Receiver abgeschaltet.</div>
+  </section>
+  <section>
+    <h2>Pegel</h2>
+    <div class="lbl">Subwoofer-Pegel (Schnellanpassung)</div>
+    <div class="lv">
+      <button id="swlon" style="width:auto;padding:0 18px;font-size:1rem">Ein</button>
+      <span class="n"></span>
+      <button class="b3" data-lv="swl" data-d="-3">−3</button><button data-lv="swl" data-d="-0.5">−½</button><span class="v" id="v-swl">–</span><button data-lv="swl" data-d="0.5">+½</button><button class="b3" data-lv="swl" data-d="3">+3</button>
+    </div>
+    <div class="lbl">Kanalpegel</div>
+    <div id="channels"></div>
+  </section>
+</div>
+<div id="err"></div>
+<div id="warn" hidden></div>
+
+<script>
+const CH = [["FL","Front links"],["FR","Front rechts"],["C","Center"],["SW","Subwoofer"],["SL","Surround links"],
+  ["SR","Surround rechts"],["FHL","Höhe vorne links"],["FHR","Höhe vorne rechts"],["RHL","Höhe hinten links"],["RHR","Höhe hinten rechts"]];
+let st = {}, cfg = null, page = 'main';
+const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
+
+$('#channels').innerHTML = CH.map(([c, n]) =>
+  `<div class="lv"><span class="n">${n}</span><button class="b3" data-lv="${c}" data-d="-3">−3</button><button data-lv="${c}" data-d="-0.5">−½</button>` +
+  `<span class="v" id="v-${c}">–</span><button data-lv="${c}" data-d="0.5">+½</button><button class="b3" data-lv="${c}" data-d="3">+3</button></div>`).join('');
+
+async function api(path) {
+  const r = await fetch(path, {cache: 'no-store'});
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+const showErr = e => $('#err').textContent = e ? 'Receiver nicht erreichbar: ' + e.message : '';
+const db = v => { const d = v - 50; return d === 0 ? '0 dB' : (d > 0 ? '+' : '−') + String(Math.abs(d)).replace('.', ',') + ' dB'; };
+const fmt = v => Number.isInteger(v) ? String(v).padStart(2, '0') : String(Math.round(v * 10)).padStart(3, '0');
+
+async function refresh() {
+  try { st = await api('/api/status'); render(); showErr(); }
+  catch (e) { showErr(e); $('#state').textContent = 'keine Verbindung'; }
+}
+async function loadSettings() {
+  try { cfg = await api('/api/settings'); renderSettings(); } catch (e) { showErr(e); }
+}
+function render() {
+  const p = $('#power');
+  p.className = st.power ? 'on' : 'off';
+  p.textContent = st.power ? '⏻ Ein' : '⏻ Aus';
+  $('#volnum').innerHTML = (st.volume ?? '–').toString().replace('.', ',') + '<small>Lautstärke</small>';
+  $('#mute').classList.toggle('sel', st.mute);
+  $('#mute').textContent = st.mute ? 'Stumm – antippen für Ton' : 'Stumm';
+  const inp = (st.input || '').toLowerCase().replace(/ /g, '');
+  $$('#inputs button').forEach(b => b.classList.toggle('sel', inp.includes(b.dataset.in)));
+  const s = (st.surround || '').toLowerCase();
+  const key = s.includes('pure') ? 'pure' : s.includes('direct') ? 'direct' :
+              (s.includes('dolby') || s.includes('atmos')) ? 'dolby' : s.includes('stereo') ? 'stereo' :
+              s.includes('auto') ? 'auto' : '';
+  $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.ms === key));
+  const sEl = $('#state'); sEl.textContent = '';
+  const bEl = document.createElement('b'); bEl.textContent = st.power ? st.input : 'Standby'; sEl.append(bEl);
+  if (st.power) sEl.append(' · ' + st.surround);
+}
+function renderSettings() {
+  if (!cfg) return;
+  $$('[data-set]').forEach(row => row.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('sel', String(cfg[row.dataset.set]) === b.dataset.v)));
+  $('#swlon').textContent = cfg.swl_on ? 'Ein' : 'Aus';
+  $('#swlon').classList.toggle('sel', !!cfg.swl_on);
+  if (cfg.swl != null) $('#v-swl').textContent = db(cfg.swl);
+  CH.forEach(([c]) => {
+    const v = cfg.levels[c], el = $('#v-' + c);
+    el.textContent = v == null ? '–' : db(v);
+    el.classList.toggle('chg', v != null && v !== 50);
+  });
+}
+async function run(p, reloadSettings) {
+  document.body.classList.add('busy');
+  try { await api(p); showErr(); } catch (e) { showErr(e); }
+  document.body.classList.remove('busy');
+  setTimeout(refresh, 400);
+  if (reloadSettings) setTimeout(loadSettings, 700);
+}
+const cmd = (c, s) => run('/api/cmd?c=' + encodeURIComponent(c), s);
+let warnTimer = null;
+function warn(text) {
+  const el = $('#warn'); el.textContent = text; el.hidden = false;
+  clearTimeout(warnTimer); warnTimer = setTimeout(() => el.hidden = true, 4500);
+}
+async function volClick(d) {
+  document.body.classList.add('busy');
+  try {
+    const before = st.volume;
+    const r = await api('/api/vol?d=' + d); showErr();
+    if (d > 0 && r.volume === 80 && (before ?? 0) < 80)
+      warn('Achtung: Ab 80 wird es sehr laut. Für mehr einfach noch einmal tippen.');
+    else if (d > 0 && r.volume > 80)
+      warn('Sehr laut (' + r.volume + ') – bitte Ohren und Lautsprecher schonen.');
+  } catch (e) { showErr(e); }
+  document.body.classList.remove('busy');
+  setTimeout(refresh, 400);
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.classList.contains('tab')) {
+    page = b.dataset.page;
+    $$('.tab').forEach(t => t.classList.toggle('sel', t === b));
+    $('#main').hidden = page !== 'main';
+    $('#sound').hidden = page !== 'sound';
+    if (page === 'sound') loadSettings();
+  } else if (b.id === 'power') cmd(st.power ? 'ZMOFF' : 'ZMON');
+  else if (b.id === 'mute') cmd(st.mute ? 'MUOFF' : 'MUON');
+  else if (b.id === 'swlon') cmd(cfg && cfg.swl_on ? 'PSSWL OFF' : 'PSSWL ON', true);
+  else if (b.dataset.vol) volClick(Number(b.dataset.vol));
+  else if (b.dataset.scene) run('/api/scene?n=' + b.dataset.scene);
+  else if (b.dataset.lv && cfg) {
+    const k = b.dataset.lv, cur = k === 'swl' ? cfg.swl : cfg.levels[k];
+    if (cur == null) return;
+    const nv = Math.max(38, Math.min(62, cur + Number(b.dataset.d)));
+    if (k === 'swl') cfg.swl = nv; else cfg.levels[k] = nv;
+    renderSettings();
+    cmd((k === 'swl' ? 'PSSWL ' : 'CV' + k + ' ') + fmt(nv));
+  } else if (b.dataset.cmd) cmd(b.dataset.cmd, !!b.closest('[data-set]'));
+});
+
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+</script>
+</body>
+</html>
