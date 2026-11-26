@@ -499,7 +499,7 @@ class App(Gtk.Window):
         return col
 
     def build_main(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         ov = Gtk.Overlay()
         self.ring = Gtk.DrawingArea()
         self.ring.set_size_request(-1, 380)
@@ -514,7 +514,10 @@ class App(Gtk.Window):
         ov.add(self.ring)
         mid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         mid.set_halign(Gtk.Align.CENTER)
-        mid.set_valign(Gtk.Align.CENTER)
+        self.ring_mid = mid
+        mid.set_valign(Gtk.Align.START)
+        # Zahl genau in die (tiefer liegende) Ringmitte: Abstand nach dem Verteilen der Größen setzen
+        self.ring.connect("size-allocate", lambda w, a: GLib.idle_add(self.place_ring_mid))
         self.vol_lbl = label("–", "volnum")
         self.vol_cap = label("LAUTSTÄRKE", "volcap")
         mid.pack_start(self.vol_lbl, False, False, 0)
@@ -523,17 +526,21 @@ class App(Gtk.Window):
         page.pack_start(ov, True, True, 0)
 
         cap = Gtk.Box()
-        cap.pack_start(label("EINGANG", "cap", xalign=0), True, True, 0)
+        ph = Gtk.Box()
+        ph.set_size_request(46, -1)                      # Platzhalter = Breite von ✎ → echte Mitte
+        cap.pack_start(ph, False, False, 0)
+        cap.pack_start(label("EINGANG", "cap"), True, True, 0)
         cap.pack_start(button("✎", self.open_input_editor, "edit"), False, False, 0)
         page.pack_start(cap, False, False, 0)
         self.in_holder = Gtk.Box()
         page.pack_start(self.in_holder, False, False, 0)
         self.in_btns = {}
         self.refresh_inputs()
-        page.pack_start(label("SOUND MODE", "cap", xalign=0), False, False, 0)
+        page.pack_start(label("SOUND MODE", "cap"), False, False, 6)
         seg, _ = segmented(m.MODE_GROUPS, self.cmd)
+        add_cls(seg, "compact")
         page.pack_start(seg, False, False, 0)
-        page.pack_start(label("KLANGMODUS", "cap", xalign=0), False, False, 0)
+        page.pack_start(label("KLANGMODUS", "cap"), False, False, 6)
         seg, self.mode_btns = segmented([(c, t) for c, t, _ in m.MODES], self.cmd)
         add_cls(seg, "compact")
         page.pack_start(seg, False, False, 0)
@@ -1463,10 +1470,27 @@ class App(Gtk.Window):
         return val
 
     # ----- Lautstärke-Ring -----
+    @staticmethod
+    def ring_layout(W, H):
+        """Mittelpunkt und Radius: Der Ring ist unten offen (270°), deshalb sitzt der
+        Mittelpunkt tiefer – so nutzt der Ring die Fläche voll aus."""
+        pad = 54                                   # Platz fürs Glühen
+        r = min(W / 2 - pad, (H - pad - 34) / (1 + math.sin(math.pi / 4)))
+        return W / 2, pad + r, max(r, 50)
+
+    def place_ring_mid(self):
+        a = self.ring.get_allocation()
+        cx, cy, r = self.ring_layout(a.width, a.height)
+        mid = self.ring_mid
+        h = mid.get_preferred_height()[1] - mid.get_margin_top() - mid.get_margin_bottom()
+        top = max(0, int(cy - h / 2))
+        if self.ring_mid.get_margin_top() != top:
+            self.ring_mid.set_margin_top(top)
+        return False
+
     def draw_ring(self, w, cr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
-        r = min(W, H) / 2 - 72
-        cx, cy = W / 2, H / 2
+        cx, cy, r = self.ring_layout(W, H)
         a0, sweep = math.pi * 0.75, math.pi * 1.5
         v = self.vol_shown
         frac = 0 if v is None else max(0.0, min(1.0, v / m.MAX_VOL))
@@ -1517,7 +1541,7 @@ class App(Gtk.Window):
             cr.set_source_rgba(0.55, 0.56, 0.60, 0.6)
         else:
             # weicher Schein – beim Glühen mehrere breite, transparente Schichten (wie Licht)
-            layers = [(30, 0.10)] + ([(80, 0.045), (56, 0.09), (36, 0.15), (24, 0.22)]
+            layers = [(30, 0.10)] + ([(72, 0.05), (52, 0.09), (36, 0.15), (24, 0.22)]
                                      if glow > 0.01 else [])
             for width, alpha in layers:
                 k = alpha if width == 30 and len(layers) == 1 else alpha * (glow if width != 30 else 1)
@@ -1552,11 +1576,11 @@ class App(Gtk.Window):
         px, py = cx + r * math.cos(a1), cy + r * math.sin(a1)
         if glow > 0.01:
             col = RED if a1 > a_loud else GOLD
-            halo = cairo.RadialGradient(px, py, 0, px, py, 30 + 50 * glow)
+            halo = cairo.RadialGradient(px, py, 0, px, py, 26 + 26 * glow)
             halo.add_color_stop_rgba(0, *col, 0.65 * glow)
             halo.add_color_stop_rgba(1, *col, 0)
             cr.set_source(halo)
-            cr.arc(px, py, 30 + 50 * glow, 0, 2 * math.pi)
+            cr.arc(px, py, 26 + 26 * glow, 0, 2 * math.pi)
             cr.fill()
         if self.ring_drag:
             cr.set_source_rgba(*GOLD, 0.25)
@@ -1795,8 +1819,9 @@ class App(Gtk.Window):
     # ----- Drehregler am Ring -----
     def ring_geom(self, ev):
         W, H = self.ring.get_allocated_width(), self.ring.get_allocated_height()
-        dx, dy = ev.x - W / 2, ev.y - H / 2
-        return math.atan2(dy, dx), math.hypot(dx, dy), min(W, H) / 2 - 72
+        cx, cy, r = self.ring_layout(W, H)
+        dx, dy = ev.x - cx, ev.y - cy
+        return math.atan2(dy, dx), math.hypot(dx, dy), r
 
     def on_ring_press(self, _w, ev):
         base = self.vol_base()
