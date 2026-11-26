@@ -9,7 +9,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 > Unofficial hobby project – not affiliated with Marantz / Sound United.
 > “Marantz” is a trademark of its respective owner.
 
-![Control](docs/control.png)
+![Control](docs/en-control.png)
 
 ## Features
 
@@ -34,7 +34,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 
 | EQ | Sound & Levels |
 |---|---|
-| ![EQ](docs/eq-en.png) | ![Sound & Levels](docs/sound-levels.png) |
+| ![EQ](docs/en-eq.png) | ![Sound & Levels](docs/en-sound.png) |
 
 ## Installation
 

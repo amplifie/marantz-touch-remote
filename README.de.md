@@ -9,7 +9,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 > Inoffizielles Hobbyprojekt – nicht mit Marantz / Sound United verbunden.
 > „Marantz“ ist eine Marke des jeweiligen Inhabers.
 
-![Bedienung](docs/bedienung.png)
+![Bedienung](docs/de-bedienung.png)
 
 ## Funktionen
 
@@ -35,7 +35,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 
 | EQ | Klang & Pegel |
 |---|---|
-| ![EQ](docs/eq.png) | ![Klang & Pegel](docs/klang.png) |
+| ![EQ](docs/de-eq.png) | ![Klang & Pegel](docs/de-klang.png) |
 
 ## Installation
 
