@@ -52,7 +52,7 @@ SCENES = {
 
 _CH = "|".join(c for c, _ in CHANNELS)
 ALLOWED = re.compile(
-    r"^(ZMON|ZMOFF|PWON|MUON|MUOFF|MVUP|MVDOWN|MV\d{2,3}|"
+    r"^(ZMON|ZMOFF|PWON|MUON|MUOFF|MVDOWN|MV\d{2,3}|"
     r"SI(TV|GAME|SERVER|BD|DVD|BT|IRADIO|USB/IPOD|SAT/CBL|MPLAY|AUX1|AUX2|CD|PHONO|TUNER|FAVORITES|NET)|"
     r"MS(STEREO|AUTO|DIRECT|PURE DIRECT|DOLBY DIGITAL|DOLBY SURROUND|DOLBY ATMOS|DTS SURROUND|"
     r"NEURAL:X|MCH STEREO|MOVIE|MUSIC|GAME)|"
@@ -62,7 +62,8 @@ ALLOWED = re.compile(
     r"PSTONE CTRL (ON|OFF)|PSBAS (UP|DOWN|4[4-9]|5[0-6])|PSTRE (UP|DOWN|4[4-9]|5[0-6])|PSGEQ (ON|OFF)|"
     r"CV(" + _CH + r") (UP|DOWN|\d{2,3})|"
     r"NS9[0-4A-EXY]|"
-    r"MNMEN (ON|OFF)|MNCUP|MNCDN|MNCLT|MNCRT|MNENT|MNRTN|MNOPT|MNINF)$")  # Setup-Menü am TV  # Netzwerk-Menü: Cursor, Enter, Seiten, Wiedergabe
+    r"MNMEN (ON|OFF)|MNCUP|MNCDN|MNCLT|MNCRT|MNENT|MNRTN|MNOPT|MNINF)\Z",  # Setup-Menü am TV
+    re.ASCII)  # \Z: kein Zeilenumbruch am Ende; ASCII: \d meint nur 0–9. Kein MVUP (ginge über MAX_VOL)
 
 _status_lock = threading.Lock()
 _telnet_lock = threading.Lock()
@@ -197,7 +198,10 @@ def send(cmd: str) -> None:
     if not ALLOWED.match(cmd):
         raise ValueError("Befehl nicht erlaubt: " + cmd)
     if cmd.startswith("MV") and cmd[2:].isdigit():
-        cmd = "MV%02d" % min(int(cmd[2:]), MAX_VOL)
+        # drei Ziffern = halbe Schritte ("455" = 45,5); über dem Maximum wird gekappt
+        value = int(cmd[2:]) / (10 if len(cmd) == 5 else 1)
+        if value > MAX_VOL:
+            cmd = "MV%02d" % MAX_VOL
     _get("/goform/formiPhoneAppDirect.xml?" + urllib.parse.quote(cmd))
     _cache["t"] = 0  # Status beim nächsten Abruf frisch holen
 

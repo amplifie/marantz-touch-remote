@@ -43,6 +43,7 @@ EN = {
     "Receiver-Fehler: {}": "Receiver error: {}", "Plex-Fehler: {}": "Plex error: {}",
     "Fehler im Hintergrunddienst: {}": "Background service error: {}", "Fehler: {}": "Error: {}",
     "Hintergrunddienst antwortet nicht": "Background service not responding",
+    "Zugriff nicht erlaubt": "Access not allowed",
     "Titel lässt sich nicht starten": "Track does not start",
     "Receiver ist nicht bereit zum Spulen": "Receiver is not ready to seek",
     "Receiver antwortet nicht": "Receiver is not responding",

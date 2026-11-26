@@ -48,6 +48,11 @@ def soap(url: str, service: str, action: str, args: dict, timeout: float = 6) ->
 
 
 # ---------- Plex finden ----------
+def _is_web(url: str) -> bool:
+    """Nur normale Webadressen öffnen (nie file:, ftp: …) – sie kommen aus dem Netz."""
+    return url.lower().startswith(("http://", "https://"))
+
+
 def _find_plex() -> str:
     """Plex-Server per SSDP suchen, Steuer-Adresse seines ContentDirectory zurückgeben."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -70,7 +75,7 @@ def _find_plex() -> str:
                 locations.append(loc.group(1).decode())
     finally:
         s.close()
-    for loc in locations:
+    for loc in filter(_is_web, locations):
         try:
             desc = urllib.request.urlopen(loc, timeout=3).read().decode("utf-8", "ignore")
         except OSError:
@@ -80,7 +85,9 @@ def _find_plex() -> str:
         m_ = re.search(r"<serviceType>" + re.escape(CD) + r"</serviceType>.*?<controlURL>([^<]+)",
                        desc, re.S)
         if m_:
-            return urllib.parse.urljoin(loc, m_.group(1))
+            ctrl = urllib.parse.urljoin(loc, m_.group(1))
+            if _is_web(ctrl):
+                return ctrl
     raise RuntimeError("Plex-Server nicht gefunden")
 
 
@@ -90,8 +97,10 @@ def plex_ctrl(refresh: bool = False) -> str:
     if not refresh:
         try:
             with open(PLEX_FILE) as f:
-                _plex["ctrl"] = f.read().strip()
-                return _plex["ctrl"]
+                saved = f.read().strip()
+            if _is_web(saved):
+                _plex["ctrl"] = saved
+                return saved
         except OSError:
             pass
     _plex["ctrl"] = _find_plex()

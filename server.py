@@ -464,7 +464,19 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass                            # App wurde inzwischen geschlossen
 
+    def _from_browser_page(self):
+        """True bei Anfragen, die eine Webseite im Browser ausgelöst haben könnte.
+
+        Die App und der Startbildschirm schicken weder Origin noch Sec-Fetch-Site.
+        Die Host-Prüfung hält Seiten ab, die ihren Namen auf 127.0.0.1 umbiegen."""
+        port = self.server.server_port
+        return (self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}")
+                or self.headers.get("Origin") is not None
+                or self.headers.get("Sec-Fetch-Site") not in (None, "none"))
+
     def do_GET(self):
+        if self._from_browser_page():
+            return self._json({"error": "Zugriff nicht erlaubt"}, 403)
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
         try:

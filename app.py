@@ -382,6 +382,12 @@ def button(text, cb, *classes):
     return add_cls(b, *classes)
 
 
+def update_text(lb, text):
+    """Text nur setzen, wenn er sich ändert (sonst rechnet GTK das Layout neu)."""
+    if lb.get_text() != _(text):
+        lb.set_text(text)
+
+
 def segmented(items, cb, vertical=False):
     """Edle Segment-Leiste; items = [(wert, text)]. Gibt (box, {wert: button}) zurück."""
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL,
@@ -1010,6 +1016,7 @@ class App(Gtk.Window):
         self.art_cache = {}
         self.art_pb = None
         self.art_url = None
+        self.shown_playing = self.shown_pid = self.shown_bar = None   # zuletzt Gezeichnetes
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         self.media_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
@@ -1224,8 +1231,11 @@ class App(Gtk.Window):
             self.worker.put(lambda: api(f"/api/play?parent={urllib.parse.quote(parent)}"
                                         f"&item={urllib.parse.quote(it['id'])}"))
 
+    def playing_id(self):
+        return self.pl.get("id") if self.pl.get("active") else None
+
     def mark_playing(self):
-        pid = self.pl.get("id") if self.pl.get("active") else None
+        pid = self.shown_pid = self.playing_id()
         for row in self.lib_list.get_children():
             set_cls(row, "playing", row.item.get("id") == pid)
 
@@ -1329,24 +1339,30 @@ class App(Gtk.Window):
         has = bool(pl.get("title")) and pl.get("count", 1) and (pl.get("active") or pl.get("title"))
         self.mini_rev.set_reveal_child(bool(has) and self.media_stack.get_visible_child_name() == "list")
         playing = pl.get("state") == "PLAYING"
-        for b in (self.mini_play, self.np_play):
-            b.set_label("⏸" if playing else "▶")
-            set_cls(b, "sel", playing)
+        if playing != self.shown_playing:       # läuft jede Sekunde: nur Änderungen setzen
+            self.shown_playing = playing
+            for b in (self.mini_play, self.np_play):
+                b.set_label("⏸" if playing else "▶")
+                set_cls(b, "sel", playing)
         title = pl.get("title") or "–"
-        self.mini_title.set_text(title)
+        update_text(self.mini_title, title)
         tm = f"{self.fmt_time(pl.get('elapsed') or 0)} / {self.fmt_time(pl.get('duration'))}"
         state = _({"PLAYING": "", "PAUSED_PLAYBACK": "Pause · ", "STOPPED": "Gestoppt · ",
                    "TRANSITIONING": "lädt … · "}.get(pl.get("state", ""), ""))
-        self.mini_sub.set_text(f"{state}{pl.get('artist') or ''}  ·  {tm}")
-        self.np_title.set_text(title)
-        self.np_artist.set_text(pl.get("artist") or "")
-        self.np_album.set_text(tr(pl.get("album") or ""))
-        self.np_track.set_text(_("Titel {} von {}").format(pl["index"], pl["count"]) if pl.get("count") else "")
-        self.np_elapsed.set_text(self.fmt_time(pl.get("elapsed") or 0))
-        self.np_total.set_text(self.fmt_time(pl.get("duration")))
-        self.np_bar.queue_draw()
+        update_text(self.mini_sub, f"{state}{pl.get('artist') or ''}  ·  {tm}")
+        update_text(self.np_title, title)
+        update_text(self.np_artist, pl.get("artist") or "")
+        update_text(self.np_album, tr(pl.get("album") or ""))
+        update_text(self.np_track, _("Titel {} von {}").format(pl["index"], pl["count"]) if pl.get("count") else "")
+        update_text(self.np_elapsed, self.fmt_time(pl.get("elapsed") or 0))
+        update_text(self.np_total, self.fmt_time(pl.get("duration")))
+        bar = (pl.get("elapsed"), pl.get("duration"))
+        if bar != self.shown_bar:
+            self.shown_bar = bar
+            self.np_bar.queue_draw()
         self.load_art(pl.get("art"))
-        self.mark_playing()
+        if self.playing_id() != self.shown_pid:     # neue Listenzeilen markiert lib_more selbst
+            self.mark_playing()
 
     def load_art(self, url):
         if url and not url.lower().startswith(("http://", "https://")):
