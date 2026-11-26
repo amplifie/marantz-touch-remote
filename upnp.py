@@ -153,9 +153,13 @@ def browse(object_id: str = "0", start: int = 0, count: int = 200) -> dict:
     args = {"ObjectID": object_id, "BrowseFlag": "BrowseDirectChildren", "Filter": "*",
             "StartingIndex": start, "RequestedCount": count, "SortCriteria": ""}
     try:
-        r = soap(plex_ctrl(), CD, "Browse", args)
-    except (OSError, RuntimeError):
-        r = soap(plex_ctrl(refresh=True), CD, "Browse", args)  # Plex evtl. umgezogen
+        try:
+            r = soap(plex_ctrl(), CD, "Browse", args)
+        except (OSError, RuntimeError):
+            r = soap(plex_ctrl(refresh=True), CD, "Browse", args)  # Plex evtl. umgezogen
+    except Exception as e:
+        e.source = "plex"           # für die Fehlermeldung in der App
+        raise
     return {"items": _parse_didl(r.get("Result", "")), "total": int(r.get("TotalMatches") or 0)}
 
 
@@ -172,23 +176,25 @@ def browse_all(object_id: str, limit: int = 2000) -> list:
 
 # ---------- Receiver als Abspielgerät ----------
 def _avt(action: str, **args) -> dict:
+    try:
+        return _avt_call(action, **args)
+    except Exception as e:
+        e.source = "receiver"       # für die Fehlermeldung in der App
+        e.action = action
+        raise
+
+
+def _avt_call(action: str, **args) -> dict:
+    # keine blinden Wiederholungen: Warten/Wiederholen entscheidet der Player (server.py)
     m._ensure_receiver()
     a = {"InstanceID": 0}
     a.update(args)
-    for attempt in range(10):
-        try:
-            try:
-                return soap(f"http://{m.RECEIVER}:8080/AVTransport/ctrl", AVT, action, a)
-            except OSError:
-                if m.find_receiver():
-                    return soap(f"http://{m.RECEIVER}:8080/AVTransport/ctrl", AVT, action, a)
-                raise
-        except RuntimeError as e:
-            # 701 = Receiver schaltet gerade um ("Transition not available") → kurz warten
-            if "701" in str(e) and action in ("Play", "Pause", "Stop", "Seek") and attempt < 9:
-                time.sleep(0.4)
-                continue
-            raise
+    try:
+        return soap(f"http://{m.RECEIVER}:8080/AVTransport/ctrl", AVT, action, a)
+    except OSError:
+        if m.find_receiver():           # nur wenn sich die Adresse geändert hat
+            return soap(f"http://{m.RECEIVER}:8080/AVTransport/ctrl", AVT, action, a)
+        raise
 
 
 def set_uri(uri: str, didl: str = "") -> None:
@@ -215,6 +221,10 @@ def seek(seconds: int) -> None:
     h, rest = divmod(max(0, int(seconds)), 3600)
     mi, se = divmod(rest, 60)
     _avt("Seek", Unit="REL_TIME", Target=f"{h}:{mi:02d}:{se:02d}")
+
+
+def transport_state() -> str:
+    return _avt("GetTransportInfo").get("CurrentTransportState", "")
 
 
 def state() -> dict:

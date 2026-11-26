@@ -16,6 +16,7 @@ import queue
 import re
 import subprocess
 import sys
+import syslog
 import urllib.parse
 import urllib.request
 import threading
@@ -458,13 +459,37 @@ class Worker:
 
 
 SERVER = "http://127.0.0.1:8080"   # Hintergrunddienst (Bibliothek + Wiedergabe)
+SEEK_DELAY = 300    # ms Ruhe nach dem letzten Tipp auf den Balken, dann spulen
+STATUS_FAILS = 3    # so viele Fehlabfragen in Folge, bis "Keine Verbindung" erscheint
+
+
+class ServiceError(RuntimeError):
+    """Fehler vom Hintergrunddienst; source: "receiver", "plex" oder "dienst"."""
+
+    def __init__(self, text, source="dienst"):
+        super().__init__(text)
+        self.source = source
 
 
 def api(path):
-    r = json.loads(urllib.request.urlopen(SERVER + path, timeout=60).read())
-    if isinstance(r, dict) and r.get("error"):
-        raise RuntimeError(r["error"])
-    return r
+    try:
+        return json.loads(urllib.request.urlopen(SERVER + path, timeout=60).read())
+    except urllib.error.HTTPError as e:
+        try:                                    # echten Fehlertext aus der Antwort lesen
+            r = json.loads(e.read())
+            raise ServiceError(r["error"], r.get("source", "dienst")) from None
+        except (ValueError, KeyError, TypeError):
+            raise ServiceError(str(e)) from None
+    except OSError:
+        raise ServiceError(_("Hintergrunddienst antwortet nicht"), "app") from None
+
+
+def err_text(e):
+    """Fehlermeldung mit der Stelle, an der es wirklich hakt."""
+    source = getattr(e, "source", "receiver" if isinstance(e, OSError) else "")
+    head = {"receiver": "Receiver-Fehler: {}", "plex": "Plex-Fehler: {}",
+            "dienst": "Fehler im Hintergrunddienst: {}"}.get(source, "Fehler: {}")
+    return _(head).format(_(str(e)))
 
 
 def in_bg(fn, done=None, err=None):
@@ -491,6 +516,9 @@ class App(Gtk.Window):
         self.vol_target = None       # Ziel beim schnellen Tippen/Halten
         self.vol_local_until = 0.0   # bis dahin Status-Lautstärke ignorieren
         self.reload_settings = False
+        self.err_timer = None
+        self.status_busy = self.status_again = False
+        self.status_fails = 0
         self.worker = Worker(self.show_err, self.after_commands)
 
         self.css_prov = Gtk.CssProvider()
@@ -655,6 +683,8 @@ class App(Gtk.Window):
         col.pack_start(self.stack, True, True, 0)
 
         self.err_lbl = label("", "err")
+        self.err_lbl.set_line_wrap(True)
+        self.err_lbl.set_max_width_chars(50)      # lange Meldungen umbrechen
         col.pack_start(self.err_lbl, False, False, 0)
         return col
 
@@ -777,6 +807,9 @@ class App(Gtk.Window):
         self.lib_path = [("0", "Bibliothek")]
         self.lib_items, self.lib_total, self.lib_loading = [], 0, False
         self.pl = {}
+        self.pl_error_id = None
+        self.seek_target, self.seek_timer, self.seek_gen = None, None, 0
+        self.seek_queued, self.seek_until = False, 0
         self.art_cache = {}
         self.art_pb = None
         self.art_url = None
@@ -982,6 +1015,7 @@ class App(Gtk.Window):
             self.lib_open(it["id"], it["title"])
         elif it["kind"] == "track":
             parent = self.lib_path[-1][0]
+            self.seek_cancel()              # altes Spulziel gehört nicht zum neuen Titel
             self.pl.update(id=it["id"], title=it["title"], artist=it.get("artist"),
                            album=it.get("album"), art=it.get("art"), state="PLAYING",
                            elapsed=0, duration=it.get("duration"), active=True,
@@ -1000,27 +1034,75 @@ class App(Gtk.Window):
 
     # ----- Wiedergabe -----
     def ctl(self, action, t=None):
+        if action == "seek" and t is not None:
+            return self.seek_to(t)
+        if action in ("next", "prev", "stop"):
+            self.seek_cancel()
         if action == "toggle":
             self.pl["state"] = "PAUSED_PLAYBACK" if self.pl.get("state") == "PLAYING" else "PLAYING"
         elif action == "stop":
             self.pl.update(state="STOPPED", active=False)
         self.pl_render()
-        q = f"/api/ctl?a={action}" + (f"&t={int(t)}" if t is not None else "")
+        q = f"/api/ctl?a={action}"
         self.worker.put(lambda: api(q))
 
-    def on_bar_press(self, w, ev):
+    # ----- Spulen: bei schnellem Tippen nur das letzte Ziel senden -----
+    def seek_to(self, t):
         d = self.pl.get("duration")
-        if not d or not self.pl.get("active"):
+        t = max(0, int(min(t, d - 5) if d else t))      # nicht ganz ans Titelende
+        self.seek_target = t
+        self.seek_until = float("inf")                  # Anzeige am Ziel halten
+        self.pl["elapsed"] = t
+        self.pl_render()
+        if self.seek_timer:
+            GLib.source_remove(self.seek_timer)
+        self.seek_timer = GLib.timeout_add(SEEK_DELAY, self.seek_send)
+
+    def seek_send(self):
+        self.seek_timer = None
+        if not self.seek_queued:        # wartet schon ein Auftrag, nimmt er das neue Ziel mit
+            self.seek_queued = True
+            gen = self.seek_gen
+            self.worker.put(lambda: self.seek_job(gen))
+        return False
+
+    def seek_job(self, gen):            # läuft im Worker-Thread
+        if gen != self.seek_gen:        # inzwischen anderer Titel / abgebrochen
+            return
+        t, self.seek_queued = self.seek_target, False
+        ok = False
+        try:
+            api(f"/api/ctl?a=seek&t={t}")
+            ok = True
+        finally:
+            GLib.idle_add(self.seek_done, t, ok)
+
+    def seek_done(self, t, ok):
+        if self.seek_target == t and not self.seek_timer and not self.seek_queued:
+            self.seek_until = time.time() + 2 if ok else 0
+        return False
+
+    def seek_cancel(self):
+        if self.seek_timer:
+            GLib.source_remove(self.seek_timer)
+            self.seek_timer = None
+        self.seek_gen += 1
+        self.seek_target, self.seek_queued, self.seek_until = None, False, 0
+
+    def on_bar_press(self, w, ev):
+        if ev.type != Gdk.EventType.BUTTON_PRESS:       # Doppelklick-Zusatzereignisse
+            return True
+        d = self.pl.get("duration")
+        if not d or not self.pl.get("id"):      # auch gestoppt: Titel startet dort
             return False
         W, pad = w.get_allocated_width(), self.bar_pad(w)
         frac = max(0.0, min(1.0, (ev.x - pad) / max(1, W - 2 * pad)))
-        self.pl["elapsed"] = int(d * frac)
-        self.pl_render()
-        self.ctl("seek", d * frac)
+        self.seek_to(d * frac)
         return True
 
     def media_tick(self):
-        if self.stack.get_visible_child_name() == "media" and not self.is_minimized():
+        visible = self.stack.get_visible_child_name() == "media" or self.pl.get("active")
+        if visible and not self.is_minimized():
             in_bg(lambda: api("/api/player"), self.on_player, lambda e: None)
         return True
 
@@ -1033,10 +1115,17 @@ class App(Gtk.Window):
         hold = getattr(self, "pl_hold_until", 0)
         if time.time() < hold and pl.get("id") != self.pl.get("id"):
             return   # Dienst meldet noch den alten Titel – gleich nochmal fragen
-        if time.time() < hold and pl.get("state") != "PLAYING":
+        if time.time() < hold and pl.get("state") not in ("PLAYING", "TRANSITIONING"):
             pl = dict(pl, state="PLAYING")
+        if time.time() < self.seek_until and pl.get("id") == self.pl.get("id") and pl.get("active"):
+            pl = dict(pl, elapsed=self.seek_target)
         self.pl = pl
         self.pl_render()
+        eid = pl.get("error_id")                # neue Meldung aus der Wiedergabe?
+        if eid != self.pl_error_id:
+            if self.pl_error_id is not None and pl.get("error"):
+                self.show_err(ServiceError(pl["error"], "receiver"))
+            self.pl_error_id = eid
 
     def pl_render(self):
         pl = self.pl
@@ -2129,7 +2218,19 @@ class App(Gtk.Window):
             self.vol_step(+1 if up else -1, first)
 
     def show_err(self, e=None):
-        self.err_lbl.set_text(_("Receiver nicht erreichbar: {}").format(_(str(e))) if e else "")
+        """Fehler unten anzeigen; verschwindet nach 3 s von selbst."""
+        if self.err_timer:
+            GLib.source_remove(self.err_timer)
+            self.err_timer = None
+        self.err_lbl.set_text(err_text(e) if e else "")
+        if e:
+            syslog.syslog(syslog.LOG_WARNING, err_text(e))
+            self.err_timer = GLib.timeout_add(3000, self.hide_err)
+
+    def hide_err(self):
+        self.err_timer = None
+        self.err_lbl.set_text("")
+        return False
 
     def after_commands(self):
         GLib.timeout_add(400, self.refresh_once)
@@ -2266,14 +2367,32 @@ class App(Gtk.Window):
         return False
 
     def refresh(self):
-        in_bg(m.status, self.on_status, self.on_status_err)
+        if self.status_busy:            # nie zwei Statusabfragen gleichzeitig
+            self.status_again = True
+            return
+        self.status_busy = True
+        in_bg(m.status, self.on_status_ok, self.on_status_err)
+
+    def status_done(self):
+        self.status_busy = False
+        if self.status_again:
+            self.status_again = False
+            GLib.timeout_add(400, self.refresh_once)
+
+    def on_status_ok(self, st):
+        lost, self.status_fails = self.status_fails >= STATUS_FAILS, 0
+        if lost:                        # wieder da → Meldung sicher entfernen
+            self.show_err()
+        try:
+            self.on_status(st)
+        finally:
+            self.status_done()
 
     def on_status(self, st):
         if st == getattr(self, "_last_status", None) and time.time() >= self.vol_local_until:
             return              # nichts geändert → nichts neu zeichnen (spart viel Rechenzeit)
         self._last_status = dict(st)
         self.st = st
-        self.show_err()
         on = st["power"]
         set_cls(self.power_btn, "on", on)
         self.power_lbl.set_text("Eingeschaltet" if on else "Standby")
@@ -2341,7 +2460,13 @@ class App(Gtk.Window):
             self.ring.queue_draw()
 
     def on_status_err(self, e):
-        self.show_err(e)
+        self.status_done()
+        self.status_fails += 1
+        if self.status_fails < STATUS_FAILS:    # einzelne Aussetzer ignorieren
+            return
+        if self.status_fails == STATUS_FAILS:
+            syslog.syslog(syslog.LOG_WARNING, "Status: %s" % e)
+        self._last_status = None                # nächster Erfolg zeichnet alles neu
         self.status_main.set_text("Keine Verbindung")
         self.status_sub.set_text(_("Receiver unter %s nicht erreichbar") % m.RECEIVER)
 
