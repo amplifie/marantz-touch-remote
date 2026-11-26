@@ -2,6 +2,8 @@
 
 🇬🇧 [English version](README.md)
 
+**🐧 Nur für Linux** – nicht für Windows, macOS, Android oder iOS.
+
 Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem **SR7010**) –
 als schlankes Linux-Programm (Python + GTK3).
 Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jedem Linux mit GTK3.

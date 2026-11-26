@@ -2,6 +2,8 @@
 
 🇩🇪 [Deutsche Version](README.de.md)
 
+**🐧 Linux only** – not for Windows, macOS, Android or iOS.
+
 A touch remote for Marantz AV receivers (built and tested with the **SR7010**) –
 as a lightweight Linux app (Python + GTK3).
 Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs on any Linux with GTK3.
