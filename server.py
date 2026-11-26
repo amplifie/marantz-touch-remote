@@ -236,9 +236,12 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/scene":
                 profiles = m.load_config()["profiles"]
                 try:
-                    p = profiles[int(q.get("n", ""))]
-                except (ValueError, IndexError):
+                    n = int(q.get("n", ""))
+                except ValueError:
+                    n = -1
+                if not 0 <= n < len(profiles):          # keine negativen/zu großen Nummern
                     return self._json({"error": "Unbekannte Szene"}, 400)
+                p = profiles[n]
                 m.run_profile(p)
                 self._json({"ok": True})
             # ----- Musik-Bibliothek & Wiedergabe -----

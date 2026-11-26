@@ -52,7 +52,7 @@ SCENES = {
 
 _CH = "|".join(c for c, _ in CHANNELS)
 ALLOWED = re.compile(
-    r"^(ZMON|ZMOFF|PWON|PWSTANDBY|MUON|MUOFF|MVUP|MVDOWN|MV\d{2,3}|"
+    r"^(ZMON|ZMOFF|PWON|MUON|MUOFF|MVUP|MVDOWN|MV\d{2,3}|"
     r"SI(TV|GAME|SERVER|BD|DVD|BT|IRADIO|USB/IPOD|SAT/CBL|MPLAY|AUX1|AUX2|CD|PHONO|TUNER|FAVORITES|NET)|"
     r"MS(STEREO|AUTO|DIRECT|PURE DIRECT|DOLBY DIGITAL|DOLBY SURROUND|DOLBY ATMOS|DTS SURROUND|"
     r"NEURAL:X|MCH STEREO|MOVIE|MUSIC|GAME)|"
@@ -536,7 +536,8 @@ def load_config() -> dict:
         if user.get("language") in ("auto", "de", "en"):
             cfg["language"] = user["language"]
         if isinstance(user.get("inputs"), list) and user["inputs"]:
-            cfg["inputs"] = [c for c in user["inputs"] if ALLOWED.match(str(c))][:MAX_INPUTS]
+            cfg["inputs"] = [c for c in user["inputs"]
+                             if str(c).startswith("SI") and ALLOWED.match(str(c))][:MAX_INPUTS]
     except (OSError, ValueError):
         pass
     return cfg
@@ -562,7 +563,8 @@ def source_name(code: str) -> str:
 def profile_subtitle(p: dict) -> str:
     if p.get("power") == "off":
         return "Standby"
-    return source_name(p["input"]) if p.get("input") else "Eingang bleibt"
+    inp = str(p.get("input") or "")
+    return source_name(inp) if inp.startswith("SI") and ALLOWED.match(inp) else "Eingang bleibt"
 
 
 def run_profile(p: dict) -> None:
@@ -574,14 +576,14 @@ def run_profile(p: dict) -> None:
     send("ZMON")
     if was_off:
         time.sleep(4)                      # Receiver braucht nach dem Einschalten etwas
-    if p.get("input") and ALLOWED.match(p["input"]):
+    if p.get("input") and str(p["input"]).startswith("SI") and ALLOWED.match(p["input"]):
         send(p["input"])
         time.sleep(1.5)
-    if p.get("mode") and ALLOWED.match(p["mode"]):
+    if p.get("mode") and str(p["mode"]).startswith("MS") and ALLOWED.match(p["mode"]):
         send(p["mode"])
         time.sleep(1.0)
     if isinstance(p.get("volume"), (int, float)):
-        send("MV%02d" % max(0, min(MAX_VOL, int(p["volume"]))))
+        send("MV%02d" % max(0, min(LOUD, int(p["volume"]))))
 
 
 _model = {"name": None}
