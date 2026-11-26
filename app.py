@@ -13,19 +13,21 @@ import math
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import urllib.parse
 import urllib.request
 import threading
 import time
+import weakref
 from pathlib import Path
 
 import cairo
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf  # noqa: E402
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, GObject  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import marantz as m  # noqa: E402
@@ -44,7 +46,7 @@ VOICE_DIR = os.path.expanduser("~/.local/share/marantz-voice")
 GOLD = (0.851, 0.725, 0.494)       # #d9b97e
 GOLD_DEEP = (0.690, 0.549, 0.318)  # #b08c51
 
-CSS = b"""
+CSS_BASE = """
 * { font-family: "Ubuntu Sans", "Ubuntu", "Noto Sans", sans-serif; }
 window {
   background-color: #0b0c0e;
@@ -206,6 +208,147 @@ scrollbar slider { min-width: 6px; background-color: rgba(255,255,255,0.15); bor
 scrollbar { background-color: transparent; border: none; }
 """
 
+# ---------- Anpassung an die Fenstergröße ----------
+# Alle Maße oben und im Code gelten für die Referenzgröße 1920×1280 (Surface 3 im Vollbild).
+# Bei anderer Fenstergröße wird alles mit einem Faktor umgerechnet – ohne Scrollen.
+UI_REF_W, UI_REF_H = 1920, 1280
+UI_MIN_PT = 7.0            # kleinste Schriftgröße, damit alles lesbar bleibt
+RING_R0 = 320.0            # Ring-Radius bei der Referenzgröße (alle Ring-Maße sind Anteile davon)
+_CSS_NUM = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(px|pt)\b")
+
+
+def scaled_css(f):
+    """CSS mit Faktor f: px und pt werden umgerechnet, 1px-Linien bleiben scharf."""
+    def one(mo):
+        v, unit = float(mo.group(1)), mo.group(2)
+        if unit == "px":
+            return mo.group(0) if v <= 1 else f"{max(1, round(v * f))}px"
+        return f"{max(UI_MIN_PT, round(v * f, 1)):g}pt"
+    return _CSS_NUM.sub(one, CSS_BASE).encode()
+
+
+def _px(v, f):
+    return v if v <= 0 else max(1, int(round(v * f)))
+
+
+class Shrinkable(Gtk.Bin):
+    """Hülle um den ganzen Inhalt: Das Fenster darf kleiner werden, als der Inhalt
+    gerade braucht (sonst ließe es sich nie verkleinern). Danach rechnet die App
+    die Maße passend um, sodass wieder alles ohne Abschneiden hineinpasst."""
+
+    def do_get_request_mode(self):
+        return Gtk.SizeRequestMode.CONSTANT_SIZE
+
+    def do_get_preferred_width(self):
+        return 1, 1
+
+    def do_get_preferred_height(self):
+        return 1, 1
+
+    def do_size_allocate(self, a):
+        self.set_allocation(a)
+        c = self.get_child()
+        if c and c.get_visible():
+            mw = c.get_preferred_width()[0]
+            r = Gdk.Rectangle()
+            r.x, r.y = a.x, a.y
+            r.width = max(a.width, mw)
+            r.height = max(a.height, c.get_preferred_height_for_width(r.width)[0])
+            c.size_allocate(r)
+
+
+class UiScale:
+    """Merkt sich für jedes Widget die ursprünglichen Pixelwerte (Größe, Abstände, Ränder)
+    und setzt sie bei einem neuen Faktor neu. Neue Widgets (z. B. Listenzeilen) werden
+    automatisch erfasst, sobald sie in die Oberfläche eingehängt werden."""
+
+    def __init__(self):
+        self.f = 1.0
+        self.known = weakref.WeakSet()
+        self.pending = []
+        self.idle = None
+        GObject.add_emission_hook(Gtk.Widget, "parent-set", self._on_parent_set)
+
+    def _on_parent_set(self, w, *_):
+        self.pending.append(w)
+        if self.idle is None:
+            self.idle = GLib.idle_add(self.flush, priority=GLib.PRIORITY_HIGH_IDLE)
+        return True
+
+    def flush(self):
+        """Neu eingehängte Widgets erfassen und mit dem aktuellen Faktor anpassen."""
+        self.idle = None
+        todo, self.pending = self.pending, []
+        for w in todo:
+            if w.get_parent() is None:
+                continue
+            b = getattr(w, "_ui_base", None)
+            if b is None:
+                b = self._record(w)
+                w._ui_base = b
+                self.known.add(w)
+            else:
+                b.pop("pad", None)          # neu eingepackt: Abstand frisch übernehmen
+                self._record_pad(w, b)
+            if self.f != 1.0:
+                self._apply(w, b)
+        return False
+
+    @staticmethod
+    def _record_pad(w, b):
+        p = w.get_parent()
+        if isinstance(p, Gtk.Box):
+            pad = p.child_get_property(w, "padding")
+            if pad:
+                b["pad"] = pad
+
+    def _record(self, w):
+        b = {}
+        rw, rh = w.get_size_request()
+        if rw > 0 or rh > 0:
+            b["req"] = (rw, rh)
+        if isinstance(w, Gtk.Container) and w.get_border_width():
+            b["border"] = w.get_border_width()
+        if isinstance(w, Gtk.Box) and w.get_spacing():
+            b["spacing"] = w.get_spacing()
+        if isinstance(w, Gtk.Grid) and (w.get_row_spacing() or w.get_column_spacing()):
+            b["grid"] = (w.get_row_spacing(), w.get_column_spacing())
+        if not getattr(w, "_ui_keep_margin", False):
+            mg = (w.get_margin_top(), w.get_margin_bottom(), w.get_margin_start(), w.get_margin_end())
+            if any(mg):
+                b["margin"] = mg
+        self._record_pad(w, b)
+        return b
+
+    def _apply(self, w, b):
+        f = self.f
+        if "req" in b:
+            w.set_size_request(*(_px(v, f) for v in b["req"]))
+        if "border" in b:
+            w.set_border_width(_px(b["border"], f))
+        if "spacing" in b:
+            w.set_spacing(_px(b["spacing"], f))
+        if "grid" in b:
+            w.set_row_spacing(_px(b["grid"][0], f))
+            w.set_column_spacing(_px(b["grid"][1], f))
+        if "margin" in b:
+            t, bo, st, en = (_px(v, f) for v in b["margin"])
+            w.set_margin_top(t)
+            w.set_margin_bottom(bo)
+            w.set_margin_start(st)
+            w.set_margin_end(en)
+        if "pad" in b:
+            p = w.get_parent()
+            if isinstance(p, Gtk.Box):
+                exp, fill, _pad, pt = p.query_child_packing(w)
+                p.set_child_packing(w, exp, fill, _px(b["pad"], f), pt)
+
+    def set_factor(self, f):
+        self.flush()
+        self.f = f
+        for w in list(self.known):
+            self._apply(w, w._ui_base)
+
 
 # ---------- kleine Helfer ----------
 def add_cls(w, *classes):
@@ -350,10 +493,12 @@ class App(Gtk.Window):
         self.reload_settings = False
         self.worker = Worker(self.show_err, self.after_commands)
 
-        prov = Gtk.CssProvider()
-        prov.load_from_data(CSS)
+        self.css_prov = Gtk.CssProvider()
+        self.css_prov.load_from_data(scaled_css(1.0))
         Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gdk.Screen.get_default(), self.css_prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.ui = UiScale()
+        self.scale_target, self.scale_timer = None, None
 
         outer = Gtk.Box(spacing=26)
         outer.set_border_width(26)
@@ -370,7 +515,10 @@ class App(Gtk.Window):
         top_ov.add_overlay(self.toast_rev)
         top_ov.set_overlay_pass_through(self.toast_rev, True)
         self.toast_timer = None
-        self.add(top_ov)
+        self.content = top_ov
+        shell = Shrinkable()
+        shell.add(top_ov)
+        self.add(shell)
         outer.pack_start(self.build_left(), False, False, 0)
         outer.pack_start(self.build_center(), True, True, 0)
         outer.pack_start(self.build_right(), False, False, 0)
@@ -385,6 +533,12 @@ class App(Gtk.Window):
         Gdk.event_handler_set(self.on_any_event, None)
         self.fullscreen()
         self.is_full = True
+        # Startgröße = Bildschirm (Vollbild); spätere Größenänderungen kommen über configure-event
+        mon = Gdk.Display.get_default().get_primary_monitor() or Gdk.Display.get_default().get_monitor(0)
+        if mon:
+            g = mon.get_geometry()
+            self.request_scale(g.width, g.height, now=True)
+        self.connect("configure-event", lambda _w, ev: self.request_scale(ev.width, ev.height))
         self.show_page("main")
         self.refresh()
         in_bg(m.model_name, lambda n: self.model_lbl.set_text(n.upper()), lambda e: None)
@@ -521,10 +675,15 @@ class App(Gtk.Window):
         mid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         mid.set_halign(Gtk.Align.CENTER)
         self.ring_mid = mid
+        mid._ui_keep_margin = True
         mid.set_valign(Gtk.Align.START)
         # Zahl genau in die (tiefer liegende) Ringmitte: Abstand nach dem Verteilen der Größen setzen
         self.ring.connect("size-allocate", lambda w, a: GLib.idle_add(self.place_ring_mid))
+        mid.connect("size-allocate", lambda w, a: GLib.idle_add(self.place_ring_mid))  # neue Schriftgröße
         self.vol_lbl = label("–", "volnum")
+        self.vol_font_prov, self.vol_font_pt = Gtk.CssProvider(), None
+        self.vol_lbl.get_style_context().add_provider(self.vol_font_prov,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
         self.vol_cap = label("LAUTSTÄRKE", "volcap")
         mid.pack_start(self.vol_lbl, False, False, 0)
         mid.pack_start(self.vol_cap, False, False, 0)
@@ -661,7 +820,7 @@ class App(Gtk.Window):
         inner = Gtk.Box(spacing=18)
         self.mini_cover = Gtk.DrawingArea()
         self.mini_cover.set_size_request(84, 84)
-        self.mini_cover.connect("draw", lambda w, cr: self.draw_art(w, cr, 14))
+        self.mini_cover.connect("draw", lambda w, cr: self.draw_art(w, cr, 14 / 84))
         inner.pack_start(self.mini_cover, False, False, 0)
         txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         txt.set_valign(Gtk.Align.CENTER)
@@ -697,7 +856,7 @@ class App(Gtk.Window):
         body = Gtk.Box(spacing=40)
         self.np_cover = Gtk.DrawingArea()
         self.np_cover.set_size_request(440, 440)
-        self.np_cover.connect("draw", lambda w, cr: self.draw_art(w, cr, 26))
+        self.np_cover.connect("draw", lambda w, cr: self.draw_art(w, cr, 26 / 440))
         body.pack_start(self.np_cover, False, False, 0)
         info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         info.set_valign(Gtk.Align.CENTER)
@@ -853,8 +1012,8 @@ class App(Gtk.Window):
         d = self.pl.get("duration")
         if not d or not self.pl.get("active"):
             return False
-        W = w.get_allocated_width()
-        frac = max(0.0, min(1.0, (ev.x - 12) / max(1, W - 24)))
+        W, pad = w.get_allocated_width(), self.bar_pad(w)
+        frac = max(0.0, min(1.0, (ev.x - pad) / max(1, W - 2 * pad)))
         self.pl["elapsed"] = int(d * frac)
         self.pl_render()
         self.ctl("seek", d * frac)
@@ -920,13 +1079,15 @@ class App(Gtk.Window):
             self.np_cover.queue_draw()
             return
 
+        target = max(480, self.np_cover.get_allocated_width())   # nicht unscharf auf großen Schirmen
+
         def fetch():
             data = urllib.request.urlopen(url, timeout=6).read()
             loader = GdkPixbuf.PixbufLoader()
             loader.write(data)
             loader.close()
             pb = loader.get_pixbuf()
-            s = 480 / max(pb.get_width(), pb.get_height())
+            s = target / max(pb.get_width(), pb.get_height())
             return pb.scale_simple(int(pb.get_width() * s), int(pb.get_height() * s),
                                    GdkPixbuf.InterpType.BILINEAR)
 
@@ -948,9 +1109,10 @@ class App(Gtk.Window):
         mi, se = divmod(rest, 60)
         return f"{h}:{mi:02d}:{se:02d}" if h else f"{mi}:{se:02d}"
 
-    def draw_art(self, w, cr, r):
+    def draw_art(self, w, cr, rr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
         size = min(W, H)
+        r = size * rr                               # Eckradius als Anteil der Cover-Größe
         x, y = (W - size) / 2, (H - size) / 2
         cr.new_sub_path()
         cr.arc(x + size - r, y + r, r, -math.pi / 2, 0)
@@ -979,11 +1141,15 @@ class App(Gtk.Window):
             cr.show_text("♪")
         return False
 
+    @staticmethod
+    def bar_pad(w):
+        return w.get_allocated_height() * 12 / 44     # Referenz: 12 px Rand bei 44 px Höhe
+
     def draw_progress(self, w, cr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
-        cy, pad = H / 2, 12
+        cy, pad = H / 2, self.bar_pad(w)
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
-        cr.set_line_width(8)
+        cr.set_line_width(H * 8 / 44)
         cr.set_source_rgba(1, 1, 1, 0.08)
         cr.move_to(pad, cy)
         cr.line_to(W - pad, cy)
@@ -1000,7 +1166,7 @@ class App(Gtk.Window):
         cr.line_to(x1, cy)
         cr.stroke()
         cr.set_source_rgb(0.96, 0.92, 0.84)
-        cr.arc(x1, cy, 12, 0, 2 * math.pi)
+        cr.arc(x1, cy, pad, 0, 2 * math.pi)
         cr.fill()
         return False
 
@@ -1112,9 +1278,9 @@ class App(Gtk.Window):
     @staticmethod
     def draw_globe(w, cr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
-        cx, cy, r = W / 2, H / 2, min(W, H) / 2 - 2
+        cx, cy, r = W / 2, H / 2, min(W, H) / 2 * 10 / 12   # Referenz: r = 10 bei 24 px
         cr.set_source_rgb(0.73, 0.74, 0.76)
-        cr.set_line_width(1.6)
+        cr.set_line_width(max(1.0, r * 0.16))
         cr.arc(cx, cy, r, 0, 2 * math.pi)                  # Umriss
         cr.stroke()
         cr.save()                                          # Meridian (schmale Ellipse)
@@ -1610,14 +1776,20 @@ class App(Gtk.Window):
     @staticmethod
     def ring_layout(W, H):
         """Mittelpunkt und Radius: Der Ring ist unten offen (270°), deshalb sitzt der
-        Mittelpunkt tiefer – so nutzt der Ring die Fläche voll aus."""
-        pad = 54                                   # Platz fürs Glühen
-        r = min(W / 2 - pad, (H - pad - 34) / (1 + math.sin(math.pi / 4)))
-        return W / 2, pad + r, max(r, 50)
+        Mittelpunkt tiefer – so nutzt der Ring die Fläche voll aus.
+        Alle Abstände sind Anteile vom Radius (Referenz: 54 bzw. 34 px bei r = 320)."""
+        p, q = 54 / RING_R0, 34 / RING_R0           # oben Platz fürs Glühen, unten für Beschriftung
+        r = max(20.0, min(W / (2 + 2 * p), H / (1 + math.sin(math.pi / 4) + p + q)))
+        return W / 2, p * r + r, r
 
     def place_ring_mid(self):
         a = self.ring.get_allocation()
         cx, cy, r = self.ring_layout(a.width, a.height)
+        # Zahl wächst mit dem Ring (62 pt bei r = 320); nur bei spürbarer Änderung neu setzen
+        pt = max(UI_MIN_PT * 2, round(62 * r / RING_R0 * 2) / 2)
+        if pt != self.vol_font_pt:
+            self.vol_font_pt = pt
+            self.vol_font_prov.load_from_data(f"* {{ font-size: {pt:g}pt; }}".encode())
         mid = self.ring_mid
         h = mid.get_preferred_height()[1] - mid.get_margin_top() - mid.get_margin_bottom()
         top = max(0, int(cy - h / 2))
@@ -1628,6 +1800,7 @@ class App(Gtk.Window):
     def draw_ring(self, w, cr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
         cx, cy, r = self.ring_layout(W, H)
+        u = r / RING_R0                  # 1 Referenz-Pixel bei dieser Ringgröße
         a0, sweep = math.pi * 0.75, math.pi * 1.5
         v = self.vol_shown
         frac = 0 if v is None else max(0.0, min(1.0, v / m.MAX_VOL))
@@ -1640,15 +1813,15 @@ class App(Gtk.Window):
             surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, H)
             c2 = cairo.Context(surf)
             c2.set_line_cap(cairo.LINE_CAP_ROUND)
-            c2.set_line_width(2)
+            c2.set_line_width(max(1.0, 2 * u))
             for i in range(41):
                 a = a0 + sweep * i / 40
-                r1, r2 = r + 14, r + (22 if i % 5 == 0 else 18)
+                r1, r2 = r + 14 * u, r + (22 if i % 5 == 0 else 18) * u
                 c2.set_source_rgba(1, 1, 1, 0.16 if i % 5 == 0 else 0.07)
                 c2.move_to(cx + r1 * math.cos(a), cy + r1 * math.sin(a))
                 c2.line_to(cx + r2 * math.cos(a), cy + r2 * math.sin(a))
                 c2.stroke()
-            c2.set_line_width(14)
+            c2.set_line_width(14 * u)
             c2.set_source_rgba(1, 1, 1, 0.06)
             c2.arc(cx, cy, r, a0, a0 + sweep)
             c2.stroke()
@@ -1658,12 +1831,12 @@ class App(Gtk.Window):
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         # beim Glühen: Striche im gefüllten Bereich golden (nur dann, kostet sonst nichts)
         if glow > 0.01:
-            cr.set_line_width(2)
+            cr.set_line_width(max(1.0, 2 * u))
             for i in range(41):
                 a = a0 + sweep * i / 40
                 if a > a_fill:
                     break
-                r1, r2 = r + 14, r + (22 if i % 5 == 0 else 18)
+                r1, r2 = r + 14 * u, r + (22 if i % 5 == 0 else 18) * u
                 cr.set_source_rgba(*GOLD, 0.75 * glow)
                 cr.move_to(cx + r1 * math.cos(a), cy + r1 * math.sin(a))
                 cr.line_to(cx + r2 * math.cos(a), cy + r2 * math.sin(a))
@@ -1682,7 +1855,7 @@ class App(Gtk.Window):
                                      if glow > 0.01 else [])
             for width, alpha in layers:
                 k = alpha if width == 30 and len(layers) == 1 else alpha * (glow if width != 30 else 1)
-                cr.set_line_width(width)
+                cr.set_line_width(width * u)
                 cr.set_source_rgba(*GOLD, k)
                 cr.arc(cx, cy, r, a0, min(a1, a_loud))
                 cr.stroke()
@@ -1696,7 +1869,7 @@ class App(Gtk.Window):
             g.add_color_stop_rgb(0, *GOLD_DEEP)
             g.add_color_stop_rgb(1, *hi)
             cr.set_source(g)
-        cr.set_line_width(14 + 4 * glow)
+        cr.set_line_width((14 + 4 * glow) * u)
         cr.arc(cx, cy, r, a0, min(a1, a_loud))
         cr.stroke()
         if a1 > a_loud:
@@ -1705,26 +1878,27 @@ class App(Gtk.Window):
             cr.stroke()
         # Markierung bei 80
         cr.set_source_rgba(0.88, 0.40, 0.32, 0.8)
-        cr.set_line_width(3)
-        cr.move_to(cx + (r - 20) * math.cos(a_loud), cy + (r - 20) * math.sin(a_loud))
-        cr.line_to(cx + (r + 24) * math.cos(a_loud), cy + (r + 24) * math.sin(a_loud))
+        cr.set_line_width(max(1.0, 3 * u))
+        r_in, r_out = r - 20 * u, r + 24 * u
+        cr.move_to(cx + r_in * math.cos(a_loud), cy + r_in * math.sin(a_loud))
+        cr.line_to(cx + r_out * math.cos(a_loud), cy + r_out * math.sin(a_loud))
         cr.stroke()
         # Punkt am Ende (beim Drehen größer und leuchtend)
         px, py = cx + r * math.cos(a1), cy + r * math.sin(a1)
         if glow > 0.01:
             col = RED if a1 > a_loud else GOLD
-            halo = cairo.RadialGradient(px, py, 0, px, py, 26 + 26 * glow)
+            halo = cairo.RadialGradient(px, py, 0, px, py, (26 + 26 * glow) * u)
             halo.add_color_stop_rgba(0, *col, 0.65 * glow)
             halo.add_color_stop_rgba(1, *col, 0)
             cr.set_source(halo)
-            cr.arc(px, py, 26 + 26 * glow, 0, 2 * math.pi)
+            cr.arc(px, py, (26 + 26 * glow) * u, 0, 2 * math.pi)
             cr.fill()
         if self.ring_drag:
             cr.set_source_rgba(*GOLD, 0.25)
-            cr.arc(px, py, 30, 0, 2 * math.pi)
+            cr.arc(px, py, 30 * u, 0, 2 * math.pi)
             cr.fill()
         cr.set_source_rgb(0.96, 0.92, 0.84) if not muted else cr.set_source_rgb(0.7, 0.7, 0.72)
-        cr.arc(px, py, 16 if self.ring_drag else 9, 0, 2 * math.pi)
+        cr.arc(px, py, (16 if self.ring_drag else 9) * u, 0, 2 * math.pi)
         cr.fill()
         return False
 
@@ -1900,6 +2074,46 @@ class App(Gtk.Window):
                 self.cursor_timer = GLib.timeout_add(3000, self.hide_cursor)
         Gtk.main_do_event(ev)
 
+    # ----- Größe anpassen (entprellt, damit beim Ziehen nichts ruckelt) -----
+    def request_scale(self, W, H, now=False):
+        if (W, H) == self.scale_target:
+            return False
+        self.scale_target = (W, H)
+        if self.scale_timer:
+            GLib.source_remove(self.scale_timer)
+            self.scale_timer = None
+        if now:
+            self.apply_scale()
+        else:
+            self.scale_timer = GLib.timeout_add(250, self.apply_scale)   # erst wenn Ruhe ist
+        return False
+
+    def set_ui_factor(self, f):
+        if abs(f - self.ui.f) < 0.005:
+            return
+        self.css_prov.load_from_data(scaled_css(f))
+        self.ui.set_factor(f)
+
+    def apply_scale(self):
+        self.scale_timer = None
+        W, H = self.scale_target
+        self.fit_gen = getattr(self, "fit_gen", 0) + 1
+        self.set_ui_factor(max(0.4, min(2.0, W / UI_REF_W, H / UI_REF_H)))
+        # GTK misst neue Schriftgrößen erst nach dem nächsten Layout → dann prüfen
+        GLib.idle_add(self.check_fit, self.fit_gen, 0, priority=GLib.PRIORITY_LOW)
+        return False
+
+    def check_fit(self, gen, tries):
+        """Nachregeln, falls Schrift-Untergrenzen mehr Platz brauchen (höchstens 3×)."""
+        if gen != self.fit_gen or tries >= 3 or self.ui.f <= 0.4:
+            return False
+        W, H = self.scale_target
+        mn = self.content.get_preferred_size()[0]
+        if mn.width > W or mn.height > H:
+            self.set_ui_factor(max(0.4, self.ui.f * min(W / mn.width, H / mn.height) * 0.99))
+            GLib.idle_add(self.check_fit, gen, tries + 1, priority=GLib.PRIORITY_LOW)
+        return False
+
     def on_key(self, _w, ev):
         if ev.keyval == Gdk.KEY_F11:
             (self.unfullscreen if self.is_full else self.fullscreen)()
@@ -1965,7 +2179,7 @@ class App(Gtk.Window):
         if base is None:
             return False
         ang, dist, r = self.ring_geom(ev)
-        if dist < r * 0.35 or dist > r + 90:   # Mitte (Zahl) und weit außerhalb ignorieren
+        if dist < r * 0.35 or dist > r * (1 + 90 / RING_R0):   # Mitte (Zahl) und weit außerhalb ignorieren
             return False
         self.ring_drag = {"a": ang, "v": float(base)}
         self.gesture_start = base
