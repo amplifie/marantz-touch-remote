@@ -51,7 +51,7 @@ Then start **“Marantz”** from the menu. The script installs for the current 
 for your home network.
 
 **Language:** automatic (German if the system is set to German, otherwise English).
-To force one, add `"language": "en"` or `"language": "de"` to `~/.config/marantz/config.json`.
+To change it, tap the 🌐 globe at the top right (Auto · Deutsch · English) – or set `"language"` in `~/.config/marantz/config.json`.
 
 **Voice control (optional, German only for now):** put the Vosk library into
 `~/.local/share/marantz-voice/lib` and the model `vosk-model-small-de-0.15` into

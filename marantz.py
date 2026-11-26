@@ -533,6 +533,8 @@ def load_config() -> dict:
             user = json.load(f)
         if isinstance(user.get("profiles"), list) and len(user["profiles"]) == 3:
             cfg["profiles"] = user["profiles"]
+        if user.get("language") in ("auto", "de", "en"):
+            cfg["language"] = user["language"]
         if isinstance(user.get("inputs"), list) and user["inputs"]:
             cfg["inputs"] = [c for c in user["inputs"] if ALLOWED.match(str(c))][:MAX_INPUTS]
     except (OSError, ValueError):

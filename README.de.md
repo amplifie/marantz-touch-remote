@@ -50,7 +50,7 @@ Danach im Startmenü **„Marantz“** starten. Das Skript installiert nur für 
 
 **Handy:** `http://<IP-des-Rechners>:8080` – bei aktiver Firewall Port 8080 fürs Heimnetz freigeben.
 
-**Sprache:** automatisch (Deutsch, wenn das System auf Deutsch steht, sonst Englisch). Fest einstellen: `"language": "de"` oder `"en"` in `~/.config/marantz/config.json`.
+**Sprache:** automatisch (Deutsch, wenn das System auf Deutsch steht, sonst Englisch). Umstellen über den 🌐-Globus oben rechts (Automatisch · Deutsch · English) – oder `"language"` in `~/.config/marantz/config.json`.
 
 **Sprachsteuerung (optional, bisher nur Deutsch):** Vosk-Bibliothek nach `~/.local/share/marantz-voice/lib` und das
 Modell `vosk-model-small-de-0.15` nach `~/.local/share/marantz-voice/model` legen – dann erscheint

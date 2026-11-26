@@ -120,7 +120,7 @@ button.toggle-sm { min-height: 62px; min-width: 90px; border-radius: 18px; font-
 .volnum { font-size: 62pt; font-weight: 200; color: #f2f1ee; }
 .volcap { font-size: 9pt; font-weight: 600; letter-spacing: 4px; color: #7d8088; }
 .volnum.muted { color: #8a8d94; }
-button.topbtn { min-width: 76px; min-height: 76px; border-radius: 38px; padding: 0; font-size: 20pt;
+button.topbtn { min-width: 60px; min-height: 60px; border-radius: 30px; padding: 0; font-size: 17pt;
                 color: #b9bcc2; }
 button.edit { min-width: 46px; min-height: 40px; border-radius: 14px; padding: 0 8px; font-size: 13pt;
               background-image: none; background-color: transparent; border-color: rgba(255,255,255,0.10);
@@ -441,9 +441,10 @@ class App(Gtk.Window):
     def build_right(self):
         rail = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14), "rail")
         rail.set_size_request(230, -1)
-        top = Gtk.Box(spacing=22, homogeneous=True)
+        top = Gtk.Box(spacing=8, homogeneous=True)
         top.set_halign(Gtk.Align.CENTER)
         top.pack_start(button("⚙", self.open_setup, "topbtn"), False, False, 0)
+        top.pack_start(self.build_globe(), False, False, 0)
         top.pack_start(button("✕", Gtk.main_quit, "topbtn"), False, False, 0)
         rail.pack_start(top, False, False, 0)
         rail.pack_start(Gtk.Box(), True, True, 0)
@@ -1034,6 +1035,84 @@ class App(Gtk.Window):
         self.cmd(code)
         if code == "SISERVER":
             self.show_page("media")
+
+    # ----- Sprache (🌐) -----
+    def build_globe(self):
+        """Sprachknopf: selbst gezeichneter Globus – sprachunabhängig erkennbar."""
+        b = Gtk.Button()
+        b.set_can_focus(False)
+        add_cls(b, "topbtn")
+        da = Gtk.DrawingArea()
+        da.set_size_request(26, 26)
+        da.set_halign(Gtk.Align.CENTER)          # nicht auf Knopfgröße aufziehen
+        da.set_valign(Gtk.Align.CENTER)
+        da.connect("draw", self.draw_globe)
+        b.add(da)
+        b.connect("clicked", lambda *_: self.open_lang_pop())
+        self.lang_pop = Gtk.Popover(relative_to=b, position=Gtk.PositionType.BOTTOM)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(14)
+        box.pack_start(label("SPRACHE / LANGUAGE", "cap", xalign=0), False, False, 4)
+        self.lang_btns = {}
+        # Namen jeweils in der eigenen Sprache – absichtlich NICHT übersetzt
+        for code, name in (("auto", "Automatisch / Auto"), ("de", "Deutsch"), ("en", "English")):
+            btn = Gtk.Button(label=name)
+            btn.set_can_focus(False)
+            add_cls(btn, "popbtn")
+            btn.connect("clicked", lambda _b, c=code: self.choose_lang(c))
+            self.lang_btns[code] = btn
+            box.pack_start(btn, False, False, 0)
+        box.show_all()
+        self.lang_pop.add(box)
+        return b
+
+    @staticmethod
+    def draw_globe(w, cr):
+        W, H = w.get_allocated_width(), w.get_allocated_height()
+        cx, cy, r = W / 2, H / 2, min(W, H) / 2 - 2
+        cr.set_source_rgb(0.73, 0.74, 0.76)
+        cr.set_line_width(1.6)
+        cr.arc(cx, cy, r, 0, 2 * math.pi)                  # Umriss
+        cr.stroke()
+        cr.save()                                          # Meridian (schmale Ellipse)
+        cr.translate(cx, cy)
+        cr.scale(0.45, 1)
+        cr.arc(0, 0, r, 0, 2 * math.pi)
+        cr.restore()
+        cr.stroke()
+        cr.move_to(cx, cy - r)                             # Mittel-Meridian
+        cr.line_to(cx, cy + r)
+        cr.move_to(cx - r, cy)                             # Äquator
+        cr.line_to(cx + r, cy)
+        for k in (-0.5, 0.5):                              # Breitenkreise
+            y = cy + k * r
+            dx = r * math.sqrt(1 - k * k) * 0.92
+            cr.move_to(cx - dx, y)
+            cr.line_to(cx + dx, y)
+        cr.stroke()
+        return False
+
+    def open_lang_pop(self):
+        cur = m.load_config().get("language", "auto")
+        mark(self.lang_btns, cur)
+        self.lang_pop.popup()
+
+    def choose_lang(self, code):
+        self.lang_pop.popdown()
+        cfg = m.load_config()
+        if cfg.get("language", "auto") == code:
+            return
+        cfg["language"] = code
+        m.save_config(cfg)
+        self.toast({"de": "Sprache: Deutsch – App startet neu …",
+                    "en": "Language: English – restarting …"}.get(code, "Auto – restarting …"), None)
+        GLib.timeout_add(700, self.restart_app)
+
+    def restart_app(self):
+        """Neu starten, damit alle Texte in der neuen Sprache aufgebaut werden."""
+        if self.voice_proc and self.voice_proc.poll() is None:
+            self.voice_proc.terminate()
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
 
     # ----- Sound-Mode-Gruppe (Film/Musik/Spiel/Pure) -----
     def group_press(self, code):
