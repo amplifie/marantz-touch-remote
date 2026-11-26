@@ -48,8 +48,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 
 - Linux with Python 3, GTK 3 and systemd (for the background service). Tested on
   Linux Mint 22.3 XFCE (Surface 3) only; other distributions and package names may differ.
-- Made for **touch screens and mouse**, with keyboard shortcuts for the most common actions.
-  Selecting any button with the keyboard (`Tab`) is not possible yet.
+- Works with **touch screen, mouse or keyboard**
 - Mouse wheel over the dial or the volume strip: volume up / down (same soft stop at 80)
 
 ### Keyboard shortcuts
@@ -73,6 +72,19 @@ Press `F1` or `?` in the app (or menu ☰ → “Keyboard shortcuts”) to see t
 | `F11` | Full screen on / off |
 
 While typing in a text field the shortcuts are off.
+
+#### Selecting with the keyboard
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift` + `Tab` | Move a golden highlight to the next / previous button or slider |
+| `Enter` | Press the highlighted button, open a folder, play a track |
+| `↑` `↓` | Library: select a track · highlighted slider (EQ): ±0.5 dB |
+| `↑` `↓` `←` `→` | Popups: move the highlight · TV setup menu: control the menu |
+| `Backspace` | Library: one folder back · TV setup menu: back |
+| `Esc` | Remove the highlight, then one step back |
+
+A touch or mouse click removes the highlight. Volume always works with `+` and `-`.
 
 ## Download
 

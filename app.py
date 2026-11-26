@@ -202,6 +202,11 @@ button.play { min-width: 190px; }
         border-radius: 28px; padding: 32px 44px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
 .help-key { font-size: 13pt; font-weight: 600; color: #d9b97e; }
 .help-text { font-size: 13pt; font-weight: 300; color: #ecebe8; }
+.kbd.kbd.kbd { border: 1px solid #fff3d6;
+               box-shadow: 0 0 0 3px #fff3d6, 0 0 22px 4px rgba(217,185,126,0.85); }
+list row.kbd.kbd { background-image: linear-gradient(to bottom, #3a3428, #2c281f); }
+scale.kbd slider { box-shadow: 0 0 0 4px #fff3d6, 0 0 22px 6px rgba(217,185,126,0.9); }
+scale.kbd.kbd.kbd { box-shadow: none; border-color: transparent; }
 .toast.warn { background-color: rgba(60,22,18,0.96); color: #ffe3dc;
               border-color: rgba(240,120,100,0.6); }
 button.pad { min-width: 190px; min-height: 160px; font-size: 30pt; border-radius: 32px; }
@@ -802,6 +807,10 @@ class App(Gtk.Window):
         GLib.timeout_add_seconds(60, self.voice_idle_check)
         self.connect("destroy", self.on_destroy)
         self.keys_held, self.power_asked = {}, 0.0
+        self.kfocus = None          # per Tastatur ausgewähltes Element
+        self.lib_row_at = 0         # Zeile der Mediathek, die zuletzt ausgewählt war
+        self.lib_row_memory = {}    # je Ordnertiefe: Zeile, von der aus er geöffnet wurde
+        self.lib_row_wanted = None  # nach dem Laden auswählen
         self.connect("key-press-event", self.on_key)
         self.connect("key-release-event", self.on_key_release)
         self.connect("focus-out-event", lambda *_: self.keys_held.clear())
@@ -1198,6 +1207,7 @@ class App(Gtk.Window):
         if push:
             self.lib_path.append((oid, title))
         self.lib_items, self.lib_total = [], 0
+        self.lib_row_at = 0
         self.lib_gen += 1
         self.lib_loading = False        # eine noch laufende Abfrage gehört zum alten Stand
         for r in self.lib_list.get_children():
@@ -1229,6 +1239,8 @@ class App(Gtk.Window):
             n = self.lib_total
             self.media_pos.set_text("leer" if not n else _("{} Einträge").format(n) if n != 1 else "1 Eintrag")
             self.mark_playing()
+            if self.lib_row_wanted is not None:
+                GLib.idle_add(self.lib_select_wanted)   # erst nach dem Aufbau der Zeilen
 
         def fail(e):
             if gen != self.lib_gen:
@@ -2589,6 +2601,8 @@ class App(Gtk.Window):
             dev = ev.get_source_device()
             touch = (t in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.TOUCH_UPDATE) or
                      (dev is not None and dev.get_source() == Gdk.InputSource.TOUCHSCREEN))
+            if t in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.TOUCH_BEGIN):
+                self.set_kfocus(None)       # wer tippt oder klickt, braucht keine Markierung
             if self.cursor_timer:
                 GLib.source_remove(self.cursor_timer)
                 self.cursor_timer = None
@@ -2675,6 +2689,10 @@ class App(Gtk.Window):
             else:
                 return False
             return True
+        if ev.keyval in (Gdk.KEY_Tab, Gdk.KEY_KP_Tab, Gdk.KEY_ISO_Left_Tab):
+            back = ev.keyval == Gdk.KEY_ISO_Left_Tab or ev.state & Gdk.ModifierType.SHIFT_MASK
+            self.move_focus(-1 if back else 1)
+            return True
         if key == Gdk.KEY_F11:
             (self.unfullscreen if self.is_full else self.fullscreen)()
             self.is_full = not self.is_full
@@ -2689,14 +2707,29 @@ class App(Gtk.Window):
             if not repeat:
                 self.toggle_help()
             return True
-        if key in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up,
-                   Gdk.KEY_minus, Gdk.KEY_KP_Subtract, Gdk.KEY_Down):
-            # gehaltene Taste (Wiederholung) zählt nicht als neuer Druck
-            first = self.since(ev, self.last_key) >= self.NEW_PRESS
-            self.last_key = ev.time
-            up = key in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up)
-            self.vol_step(+1 if up else -1, first)
+        if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            w = self.current_focus()
+            if not repeat:
+                if w is not None:
+                    self.activate_focus(w)
+                elif self.stack.get_visible_child_name() == "setup" and self.nav_root() is self.content:
+                    self.cmd("MNENT")
             return True
+        if key in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            return self.volume_key(ev, key in (Gdk.KEY_plus, Gdk.KEY_KP_Add))
+        arrows = {Gdk.KEY_Up: (0, -1), Gdk.KEY_Down: (0, 1),
+                  Gdk.KEY_Left: (-1, 0), Gdk.KEY_Right: (1, 0)}
+        if key in arrows and self.nav_arrow(*arrows[key]):
+            return True
+        if key == Gdk.KEY_BackSpace and self.nav_root() is self.content:
+            page = self.stack.get_visible_child_name()
+            if page == "setup":
+                self.cmd("MNRTN")
+            elif page == "media" and not repeat:
+                self.lib_back_key()
+            return True
+        if key in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return self.volume_key(ev, key == Gdk.KEY_Up)
         if key == Gdk.KEY_m:
             if not repeat:
                 self.toggle_mute()
@@ -2736,6 +2769,186 @@ class App(Gtk.Window):
             return True
         return False
 
+    # ----- Auswahl mit Tab und Pfeilen -----
+    def nav_root(self):
+        """Bereich, in dem ausgewählt wird: Hilfe, offenes Popup oder die ganze Oberfläche."""
+        if self.help_box.get_visible():
+            return self.help_box
+        for pop in (self.input_pop, self.menu_pop):
+            if pop.get_visible():
+                return pop
+        return self.content
+
+    def nav_targets(self):
+        """Auswählbare Elemente in Lesereihenfolge. Die Titelliste zählt als eine Station."""
+        out = []
+
+        def walk(w):
+            if not (w.get_mapped() and w.is_sensitive()):
+                return
+            if w is self.lib_list:
+                row = self.lib_row_widget()
+                if row:
+                    out.append(row)
+                return
+            if isinstance(w, (Gtk.Button, Gtk.Scale, Gtk.Entry)):
+                out.append(w)
+                return
+            if isinstance(w, Gtk.Container):
+                kids = w.get_children()
+                if isinstance(w, Gtk.Grid):
+                    kids.sort(key=lambda c: (w.child_get_property(c, "top-attach"),
+                                             w.child_get_property(c, "left-attach")))
+                for c in kids:
+                    walk(c)
+        walk(self.nav_root())
+        return out
+
+    def current_focus(self):
+        """Ausgewähltes Element, falls es noch sichtbar und bedienbar ist."""
+        w = self.kfocus
+        if w is None:
+            return None
+        root = self.nav_root()
+        if w.get_mapped() and w.is_sensitive() and (w is root or w.is_ancestor(root)):
+            return w
+        self.set_kfocus(None)
+        return None
+
+    def set_kfocus(self, w):
+        old, self.kfocus = self.kfocus, w
+        if old is w:
+            return
+        if old is not None:
+            set_cls(old, "kbd", False)
+            if isinstance(old, Gtk.Entry):
+                self.set_focus(None)
+        if w is not None:
+            set_cls(w, "kbd", True)
+            if isinstance(w, Gtk.Entry):
+                w.grab_focus()
+            if isinstance(w, Gtk.ListBoxRow):
+                self.lib_row_at = w.get_index()
+            self.scroll_to(w)
+
+    def move_focus(self, step):
+        targets = self.nav_targets()
+        if not targets:
+            return
+        cur = self.current_focus()
+        if cur is None:
+            focus = self.get_focus()        # z. B. ein Textfeld, das GTK selbst gewählt hat
+            cur = focus if focus in targets else None
+        if cur in targets:
+            new = targets[(targets.index(cur) + step) % len(targets)]
+        else:
+            new = targets[0 if step > 0 else -1]
+        if not isinstance(new, Gtk.Entry):
+            self.set_focus(None)
+        self.set_kfocus(new)
+
+    @staticmethod
+    def scroll_to(w):
+        """Ausgewähltes Element in einem Rollbereich sichtbar machen."""
+        sw = w.get_ancestor(Gtk.ScrolledWindow)
+        if not sw or not sw.get_child():
+            return
+        inner = sw.get_child()
+        if isinstance(inner, Gtk.Viewport):
+            inner = inner.get_child()
+        pos = w.translate_coordinates(inner, 0, 0)
+        if pos:
+            sw.get_vadjustment().clamp_page(pos[1] - 6, pos[1] + w.get_allocated_height() + 6)
+
+    def activate_focus(self, w):
+        if isinstance(w, Gtk.ListBoxRow):
+            if w.item["kind"] == "folder":
+                self.lib_row_memory[len(self.lib_path)] = w.get_index()
+                self.lib_row_wanted = 0
+                self.set_kfocus(None)
+            self.on_row(self.lib_list, w)
+        elif isinstance(w, HoldButton):
+            w.cb(True)
+        elif isinstance(w, Gtk.Button):
+            w.clicked()
+
+    # ----- Titelliste -----
+    def lib_visible(self):
+        return (self.stack.get_visible_child_name() == "media" and
+                self.media_stack.get_visible_child_name() == "list")
+
+    def lib_row_widget(self):
+        rows = self.lib_list.get_children()
+        return rows[min(self.lib_row_at, len(rows) - 1)] if rows else None
+
+    def lib_move(self, step):
+        rows = self.lib_list.get_children()
+        if not rows:
+            return
+        cur = self.current_focus()
+        if cur in rows:
+            i = max(0, min(len(rows) - 1, rows.index(cur) + step))
+        else:
+            i = min(self.lib_row_at, len(rows) - 1)
+        self.set_focus(None)
+        self.set_kfocus(rows[i])
+        if i >= len(rows) - 5 and len(rows) < self.lib_total:
+            self.lib_more()
+
+    def lib_back_key(self):
+        if self.media_stack.get_visible_child_name() == "now":
+            self.media_stack.set_visible_child_name("list")
+        elif len(self.lib_path) > 1:
+            self.lib_row_wanted = self.lib_row_memory.pop(len(self.lib_path) - 1, 0)
+            self.set_kfocus(None)
+            self.lib_up()
+
+    def lib_select_wanted(self):
+        """Nach dem Öffnen eines Ordners per Tastatur gleich wieder eine Zeile auswählen."""
+        want = self.lib_row_wanted
+        rows = self.lib_list.get_children()
+        if want is None or not rows:
+            return False
+        if want >= len(rows) and len(rows) < self.lib_total:
+            self.lib_more()             # die gemerkte Zeile liegt auf einer späteren Seite
+            return False
+        self.lib_row_wanted = None
+        if self.lib_visible():
+            self.lib_row_at = min(want, len(rows) - 1)
+            self.set_kfocus(rows[self.lib_row_at])
+            GLib.idle_add(lambda: self.kfocus is not None and self.scroll_to(self.kfocus) and False)
+        return False
+
+    def volume_key(self, ev, up):
+        # gehaltene Taste (Wiederholung) zählt nicht als neuer Druck
+        first = self.since(ev, self.last_key) >= self.NEW_PRESS
+        self.last_key = ev.time
+        self.vol_step(+1 if up else -1, first)
+        return True
+
+    def nav_arrow(self, dx, dy):
+        """Pfeiltaste dort verwenden, wo etwas auszuwählen ist. False = sonst (Lautstärke, Spulen)."""
+        if self.help_box.get_visible():
+            return True
+        if self.input_pop.get_visible():            # Raster mit drei Spalten
+            self.move_focus(dx + 3 * dy)
+            return True
+        if self.menu_pop.get_visible():
+            self.move_focus(dx + dy)
+            return True
+        w = self.current_focus()
+        if isinstance(w, Gtk.Scale) and dy:
+            w.set_value(w.get_value() - 0.5 * dy)
+            return True
+        page = self.stack.get_visible_child_name()
+        if page == "setup":                         # Menü am Fernseher
+            self.cmd({(0, -1): "MNCUP", (0, 1): "MNCDN", (-1, 0): "MNCLT", (1, 0): "MNCRT"}[dx, dy])
+            return True
+        if dy and self.lib_visible():
+            self.lib_move(dy)
+            return True
+        return False
+
     def step_back(self):
         """Esc: immer nur einen Schritt zurück, nie die App beenden."""
         page = self.stack.get_visible_child_name()
@@ -2746,14 +2959,14 @@ class App(Gtk.Window):
         elif self.menu_pop.get_visible():
             self.menu_pop.popdown()
         elif page in ("edit_scenes", "edit_inputs"):
+            self.set_kfocus(None)
             self.show_page("main")      # wie „Abbrechen“
+        elif self.current_focus() is not None and not isinstance(self.kfocus, Gtk.ListBoxRow):
+            self.set_kfocus(None)       # erst die Markierung aufheben
         elif page == "setup":
             self.close_setup()
         elif page == "media":
-            if self.media_stack.get_visible_child_name() == "now":
-                self.media_stack.set_visible_child_name("list")
-            else:
-                self.lib_up()
+            self.lib_back_key()
 
     def seek_by(self, seconds):
         pl = self.pl
@@ -2779,6 +2992,9 @@ class App(Gtk.Window):
                 ("N  B  S", "Nächster / voriger Titel / Stopp"),
                 ("1 – 4", "Bedienung, Klang & Pegel, EQ, Mediathek"),
                 ("I", "Eingang wählen, dann Ziffer"), ("Strg + 1 – 3", "Szene starten"),
+                ("Tab  ⇧ Tab", "Knopf oder Regler auswählen"), ("Enter", "Auswahl auslösen"),
+                ("↑ ↓ ← →", "In Listen und Menüs: auswählen"),
+                ("Rücktaste", "Zurück (Mediathek, Fernsehmenü)"),
                 ("P  P", "Receiver ein / aus"), ("Esc", "Einen Schritt zurück"),
                 ("Strg + M", "Minimieren"), ("Strg + Q", "App beenden"),
                 ("F11", "Vollbild an / aus"), ("F1  ?", "Diese Hilfe"))

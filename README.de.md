@@ -49,8 +49,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 
 - Linux mit Python 3, GTK 3 und systemd (für den Hintergrunddienst). Getestet nur unter
   Linux Mint 22.3 XFCE (Surface 3); andere Systeme und Paketnamen können abweichen.
-- Gemacht für **Touchscreen und Maus**, mit Tastaturkürzeln für die häufigsten Aktionen.
-  Beliebige Knöpfe per Tastatur (`Tab`) anwählen geht noch nicht.
+- Bedienbar mit **Touchscreen, Maus oder Tastatur**
 - Mausrad über Drehregler oder Lautstärkestreifen: lauter / leiser (gleicher sanfter Stopp bei 80)
 
 ### Tastaturkürzel
@@ -74,6 +73,19 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 | `F11` | Vollbild an / aus |
 
 Beim Tippen in einem Textfeld sind die Kürzel aus.
+
+#### Auswählen mit der Tastatur
+
+| Taste | Wirkung |
+|---|---|
+| `Tab` / `Umschalt` + `Tab` | Goldene Markierung zum nächsten / vorigen Knopf oder Regler |
+| `Enter` | Markierten Knopf drücken, Ordner öffnen, Titel abspielen |
+| `↑` `↓` | Mediathek: Titel wählen · markierter Regler (EQ): ±0,5 dB |
+| `↑` `↓` `←` `→` | Popups: Markierung bewegen · Fernsehmenü: Menü steuern |
+| `Rücktaste` | Mediathek: Ordner zurück · Fernsehmenü: zurück |
+| `Esc` | Markierung aufheben, dann einen Schritt zurück |
+
+Ein Tipp oder Mausklick entfernt die Markierung. Die Lautstärke geht immer mit `+` und `-`.
 
 ## Download
 
