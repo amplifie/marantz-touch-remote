@@ -8,6 +8,9 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 
 > Unofficial hobby project – not affiliated with Marantz / Sound United.
 > “Marantz” is a trademark of its respective owner.
+>
+> Built and tested with the SR7010 only; other models may work only partly.
+> It changes volume and sound settings on your receiver – **use at your own risk**.
 
 ![Control](docs/en-control.png)
 
