@@ -13,6 +13,7 @@ import urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+import i18n
 import marantz as m
 import upnp
 
@@ -217,12 +218,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "volume": new, "loud": new >= m.LOUD})
             elif u.path == "/api/config":
                 cfg = m.load_config()
+                lang = "de" if q.get("lang") == "de" else "en"
+                t = lambda x: i18n.tr_lang(x, lang)
+                norm = lambda x: x.lower().replace(" ", "")
                 self._json({
-                    "profiles": [{"name": p.get("name", ""), "sub": m.profile_subtitle(p)}
+                    "profiles": [{"name": t(p.get("name", "")), "sub": t(m.profile_subtitle(p))}
                                  for p in cfg["profiles"]],
-                    "inputs": [{"cmd": c, "name": m.source_name(c)} for c in cfg["inputs"]],
-                    "modes": [{"cmd": c, "name": t, "key": k} for c, t, k in m.MODES],
-                    "groups": [{"cmd": c, "name": t} for c, t in m.MODE_GROUPS],
+                    "inputs": [{"cmd": c, "name": t(m.source_name(c)),
+                                "match": [norm(m.source_name(c)),
+                                          norm(i18n.tr_lang(m.source_name(c), "en"))]}
+                               for c in cfg["inputs"]],
+                    "modes": [{"cmd": c, "name": t(n), "key": k} for c, n, k in m.MODES],
+                    "groups": [{"cmd": c, "name": t(n)} for c, n in m.MODE_GROUPS],
                 })
             elif u.path == "/api/scene":
                 profiles = m.load_config()["profiles"]

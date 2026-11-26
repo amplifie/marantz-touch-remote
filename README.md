@@ -1,70 +1,78 @@
 # marantz-touch-remote
 
-Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem **SR7010**) –
-als schlankes Linux-Programm (Python + GTK3) und als Webseite fürs Handy.
-Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jedem Linux mit GTK3.
+🇩🇪 [Deutsche Version](README.de.md)
 
-> Inoffizielles Hobbyprojekt – nicht mit Marantz / Sound United verbunden.
-> „Marantz“ ist eine Marke des jeweiligen Inhabers.
+A touch remote for Marantz AV receivers (built and tested with the **SR7010**) –
+as a lightweight Linux app (Python + GTK3) and as a web page for your phone.
+Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs on any Linux with GTK3.
 
-![Bedienung](docs/bedienung.png)
+> Unofficial hobby project – not affiliated with Marantz / Sound United.
+> “Marantz” is a trademark of its respective owner.
 
-## Funktionen
+![Control](docs/control.png)
 
-- **Bedienung:** Ein/Aus, Lautstärke als Drehregler (glüht beim Einstellen), Stumm,
-  Sound-Mode-Tasten (Film/Musik/Spiel/Pure) und Klangmodi (Auto, Stereo, Direct, Pure Direct,
-  Dolby, DTS, Neural:X, Multi Ch Stereo); Receiver-Modell wird automatisch erkannt
-- **Frei belegbar (✎):** drei Szenen-Knöpfe mit eigenem Namen – Eingang, Klangmodus und
-  Lautstärke per „Aktuellen Zustand übernehmen“ – und eine Eingangsleiste mit bis zu 5 Eingängen.
-  Alle Eingänge des Receivers sind zusätzlich über die Kopfzeile erreichbar.
-  Gespeichert in `~/.config/marantz/config.json` (gilt auch für die Handy-Webseite)
-- **Sicherheit beim Pegel:** Maximum 90, ab 80 sanfter Stopp mit Warnhinweis
-- **Klang & Pegel:** Audyssey MultEQ, Dynamic EQ + Referenzpegel, Dynamic Volume, Cinema EQ,
-  Subwoofer-Pegel, Kanalpegel aller Lautsprecher (±0,5 / ±3 dB)
-- **EQ:** Bass/Höhen und **9-Band-Grafik-EQ** pro Lautsprechergruppe
-- **Mediathek:** durchsucht einen Plex-Server per UPnP und spielt direkt auf dem Receiver ab –
-  mit Cover, Spulen, Warteschlange und lückenlosem Weiterspielen (läuft im Hintergrunddienst weiter)
-- **Setup-Menü am Fernseher** per Steuerkreuz
-- **Sprachsteuerung (optional, offline)** mit [Vosk](https://alphacephei.com/vosk/):
-  „lauter“, „Filmabend“, „Spiele Adele“ …
-- **Handy-Webseite** auf Port 8080
-- Receiver und Plex-Server werden im Heimnetz **automatisch gefunden** (SSDP / ARP)
+## Features
 
-| EQ | Klang & Pegel |
+- **Control:** power, volume as a rotary dial (glows while you turn it), mute,
+  sound mode buttons (Movie / Music / Game / Pure) and surround modes (Auto, Stereo, Direct,
+  Pure Direct, Dolby, DTS, Neural:X, Multi Ch Stereo); the receiver model is detected automatically
+- **Customizable (✎):** three scene buttons with your own names – input, surround mode and volume
+  via “Use current settings” – and an input bar with up to 5 inputs.
+  All receiver inputs are also available from the header.
+  Stored in `~/.config/marantz/config.json` (also used by the phone web page)
+- **Volume safety:** maximum 90, soft stop with a warning at 80
+- **Sound & Levels:** Audyssey MultEQ, Dynamic EQ + reference level, Dynamic Volume, Cinema EQ,
+  subwoofer level, channel levels of all speakers (±0.5 / ±3 dB)
+- **EQ:** bass/treble and a **9-band graphic EQ** per speaker group
+- **Library:** browses a Plex server via UPnP and plays directly on the receiver –
+  with cover art, seeking, queue and gapless playback (keeps playing in the background service)
+- **Setup menu on the TV** via an on-screen D-pad
+- **Phone web page** on port 8080
+- **English and German** – chosen automatically from the system / phone language
+- Receiver and Plex server are **found automatically** on the home network (SSDP / ARP)
+- Optional **offline voice control** (German) with [Vosk](https://alphacephei.com/vosk/)
+
+| EQ | Sound & Levels |
 |---|---|
-| ![EQ](docs/eq.png) | ![Klang & Pegel](docs/klang.png) |
+| ![EQ](docs/eq-en.png) | ![Sound & Levels](docs/sound-levels.png) |
 
 ## Installation
 
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0   # falls noch nicht vorhanden
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0   # if not installed yet
 ./install.sh
 ```
 
-Danach im Startmenü **„Marantz“** starten. Das Skript installiert nur für den aktuellen Benutzer
-(nach `~/.local/share/marantz-fernbedienung`) und richtet den Hintergrunddienst
-`marantz-web` (systemd-User-Dienst) ein. Entfernen: `./uninstall.sh`.
+Then start **“Marantz”** from the menu. The script installs for the current user only
+(to `~/.local/share/marantz-fernbedienung`) and sets up the background service
+`marantz-web` (systemd user service). Remove with `./uninstall.sh`.
 
-**Handy:** `http://<IP-des-Rechners>:8080` – bei aktiver Firewall Port 8080 fürs Heimnetz freigeben.
+**Phone:** open `http://<IP-of-the-computer>:8080` – if a firewall is active, allow port 8080
+for your home network.
 
-**Sprachsteuerung (optional):** Vosk-Bibliothek nach `~/.local/share/marantz-voice/lib` und das
-Modell `vosk-model-small-de-0.15` nach `~/.local/share/marantz-voice/model` legen – dann erscheint
-der 🎤-Knopf. `mic-fix.sh` aktiviert das eingebaute Digitalmikrofon des Surface 3 (rt5645).
+**Language:** automatic (German if the system is set to German, otherwise English).
+To force one, add `"language": "en"` or `"language": "de"` to `~/.config/marantz/config.json`.
 
-## Technik
+**Voice control (optional, German only for now):** put the Vosk library into
+`~/.local/share/marantz-voice/lib` and the model `vosk-model-small-de-0.15` into
+`~/.local/share/marantz-voice/model` – then the 🎤 button appears.
+`mic-fix.sh` enables the built-in digital microphone of the Surface 3 (rt5645).
 
-| Datei | Aufgabe |
+## How it works
+
+| File | Purpose |
 |---|---|
-| `marantz.py` | Steuerung des Receivers (HTTP-Befehle, Status-XML, Telnet-Abfragen, Grafik-EQ über die Setup-Webseite), Befehls-Whitelist |
-| `upnp.py` | Plex-Bibliothek (UPnP ContentDirectory) und Receiver als Abspielgerät (AVTransport) |
-| `server.py` | Hintergrunddienst: Webseite, JSON-API, Wiedergabe-Warteschlange |
-| `app.py` | GTK3-Oberfläche fürs Touch-Display |
-| `index.html` | Handy-Webseite |
-| `voice.py`, `sprachbefehle.py` | Offline-Spracherkennung und Befehlsverständnis |
+| `marantz.py` | Receiver control (HTTP commands, status XML, telnet queries, graphic EQ via the setup web page), command whitelist |
+| `upnp.py` | Plex library (UPnP ContentDirectory) and the receiver as a renderer (AVTransport) |
+| `server.py` | Background service: web page, JSON API, playback queue |
+| `app.py` | GTK3 touch interface |
+| `i18n.py` | English / German translations |
+| `index.html` | Phone web page |
+| `voice.py`, `sprachbefehle.py` | Offline speech recognition and command parsing (German) |
 
-Nur Python-Standardbibliothek + GTK/Cairo – keine weiteren Abhängigkeiten.
-Gesendet werden ausschließlich Befehle aus einer festen Liste.
+Python standard library + GTK/Cairo only – no other dependencies.
+Only commands from a fixed list are ever sent to the receiver.
 
-## Lizenz
+## License
 
-MIT – siehe [LICENSE](LICENSE).
+MIT – see [LICENSE](LICENSE).

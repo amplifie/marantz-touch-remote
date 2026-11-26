@@ -137,12 +137,42 @@
 <div id="warn" hidden></div>
 
 <script>
+// ---- Sprache: Deutsch, wenn der Browser/das Handy auf Deutsch steht, sonst Englisch ----
+const LANG = (navigator.language || 'en').toLowerCase().startsWith('de') ? 'de' : 'en';
+const EN = {
+  'Bedienung': 'Control', 'Klang & Pegel': 'Sound & Levels', 'Lautstärke': 'Volume', 'Stumm': 'Mute',
+  'Szenen': 'Scenes', 'Eingang': 'Input', 'Sound Mode': 'Sound Mode', 'Klangmodus': 'Surround Mode',
+  'verbinde …': 'connecting …', 'Ein': 'On', 'Aus': 'Off', 'Leicht': 'Light', 'Mittel': 'Medium',
+  'Stark': 'Heavy', 'Pegel': 'Levels', 'Kanalpegel': 'Channel levels',
+  'Referenzpegel-Offset (Dynamic EQ)': 'Reference level offset (Dynamic EQ)',
+  'Subwoofer-Pegel (Schnellanpassung)': 'Subwoofer level (quick adjust)',
+  'Hinweis: In Direct / Pure Direct sind Audyssey und Cinema EQ vom Receiver abgeschaltet.':
+    'Note: in Direct / Pure Direct the receiver switches Audyssey and Cinema EQ off.',
+  'Front links': 'Front left', 'Front rechts': 'Front right', 'Surround links': 'Surround left',
+  'Surround rechts': 'Surround right', 'Höhe vorne links': 'Front height left',
+  'Höhe vorne rechts': 'Front height right', 'Höhe hinten links': 'Rear height left',
+  'Höhe hinten rechts': 'Rear height right',
+  'Stumm – antippen für Ton': 'Muted – tap to unmute', 'Mediaserver': 'Media Server',
+  'Internetradio': 'Internet Radio', 'Favoriten': 'Favorites', '⏻ Ein': '⏻ On', '⏻ Aus': '⏻ Off',
+  'Receiver nicht erreichbar: ': 'Receiver not reachable: ', 'keine Verbindung': 'no connection',
+  'Achtung: Ab 80 wird es sehr laut. Für mehr einfach noch einmal tippen.':
+    'Caution: above 80 it gets very loud. Tap again for more.',
+  'Sehr laut ({}) – bitte Ohren und Lautsprecher schonen.':
+    'Very loud ({}) – please protect your ears and speakers.',
+};
+const t = (s, ...a) => { let r = LANG === 'en' ? (EN[s] ?? s) : s; a.forEach(x => r = r.replace('{}', x)); return r; };
+const DEC = LANG === 'de' ? ',' : '.';
+document.documentElement.lang = LANG;
+if (LANG === 'en') {      // feste Texte im HTML einmal übersetzen
+  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) { const k = n.nodeValue.trim(); if (EN[k]) n.nodeValue = n.nodeValue.replace(k, EN[k]); }
+}
 const CH = [["FL","Front links"],["FR","Front rechts"],["C","Center"],["SW","Subwoofer"],["SL","Surround links"],
   ["SR","Surround rechts"],["FHL","Höhe vorne links"],["FHR","Höhe vorne rechts"],["RHL","Höhe hinten links"],["RHR","Höhe hinten rechts"]];
 let st = {}, cfg = null, page = 'main';
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 
-$('#channels').innerHTML = CH.map(([c, n]) =>
+$('#channels').innerHTML = CH.map(([c, n]) => (n = t(n), 0) ||
   `<div class="lv"><span class="n">${n}</span><button class="b3" data-lv="${c}" data-d="-3">−3</button><button data-lv="${c}" data-d="-0.5">−½</button>` +
   `<span class="v" id="v-${c}">–</span><button data-lv="${c}" data-d="0.5">+½</button><button class="b3" data-lv="${c}" data-d="3">+3</button></div>`).join('');
 
@@ -152,13 +182,13 @@ async function api(path) {
   if (j.error) throw new Error(j.error);
   return j;
 }
-const showErr = e => $('#err').textContent = e ? 'Receiver nicht erreichbar: ' + e.message : '';
-const db = v => { const d = v - 50; return d === 0 ? '0 dB' : (d > 0 ? '+' : '−') + String(Math.abs(d)).replace('.', ',') + ' dB'; };
+const showErr = e => $('#err').textContent = e ? t('Receiver nicht erreichbar: ') + e.message : '';
+const db = v => { const d = v - 50; return d === 0 ? '0 dB' : (d > 0 ? '+' : '−') + String(Math.abs(d)).replace('.', DEC) + ' dB'; };
 const fmt = v => Number.isInteger(v) ? String(v).padStart(2, '0') : String(Math.round(v * 10)).padStart(3, '0');
 
 async function refresh() {
   try { st = await api('/api/status'); render(); showErr(); }
-  catch (e) { showErr(e); $('#state').textContent = 'keine Verbindung'; }
+  catch (e) { showErr(e); $('#state').textContent = t('keine Verbindung'); }
 }
 async function loadSettings() {
   try { cfg = await api('/api/settings'); renderSettings(); } catch (e) { showErr(e); }
@@ -166,12 +196,13 @@ async function loadSettings() {
 function render() {
   const p = $('#power');
   p.className = st.power ? 'on' : 'off';
-  p.textContent = st.power ? '⏻ Ein' : '⏻ Aus';
-  $('#volnum').innerHTML = (st.volume ?? '–').toString().replace('.', ',') + '<small>Lautstärke</small>';
+  p.textContent = t(st.power ? '⏻ Ein' : '⏻ Aus');
+  $('#volnum').textContent = (st.volume ?? '–').toString().replace('.', DEC);
+  const sm = document.createElement('small'); sm.textContent = t('Lautstärke'); $('#volnum').append(sm);
   $('#mute').classList.toggle('sel', st.mute);
-  $('#mute').textContent = st.mute ? 'Stumm – antippen für Ton' : 'Stumm';
+  $('#mute').textContent = t(st.mute ? 'Stumm – antippen für Ton' : 'Stumm');
   const inp = (st.input || '').toLowerCase().replace(/ /g, '');
-  $$('#inputs button').forEach(b => b.classList.toggle('sel', inp === b.dataset.in));
+  $$('#inputs button').forEach(b => b.classList.toggle('sel', b.dataset.in.split('|').includes(inp)));
   const s = (st.surround || '').toLowerCase();
   const key = s.includes('pure') ? 'pure' : s.includes('direct') ? 'direct' :
               s.includes('neural') ? 'neuralx' : (s.includes('multi') || s.includes('mch')) ? 'mch' :
@@ -179,14 +210,14 @@ function render() {
               s.includes('stereo') ? 'stereo' : s.includes('auto') ? 'auto' : '';
   $$('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.ms === key));
   const sEl = $('#state'); sEl.textContent = '';
-  const bEl = document.createElement('b'); bEl.textContent = st.power ? st.input : 'Standby'; sEl.append(bEl);
+  const bEl = document.createElement('b'); bEl.textContent = st.power ? t(st.input) : 'Standby'; sEl.append(bEl);
   if (st.power) sEl.append(' · ' + st.surround);
 }
 function renderSettings() {
   if (!cfg) return;
   $$('[data-set]').forEach(row => row.querySelectorAll('button').forEach(b =>
     b.classList.toggle('sel', String(cfg[row.dataset.set]) === b.dataset.v)));
-  $('#swlon').textContent = cfg.swl_on ? 'Ein' : 'Aus';
+  $('#swlon').textContent = t(cfg.swl_on ? 'Ein' : 'Aus');
   $('#swlon').classList.toggle('sel', !!cfg.swl_on);
   if (cfg.swl != null) $('#v-swl').textContent = db(cfg.swl);
   CH.forEach(([c]) => {
@@ -214,9 +245,9 @@ async function volClick(d) {
     const before = st.volume;
     const r = await api('/api/vol?d=' + d); showErr();
     if (d > 0 && r.volume === 80 && (before ?? 0) < 80)
-      warn('Achtung: Ab 80 wird es sehr laut. Für mehr einfach noch einmal tippen.');
+      warn(t('Achtung: Ab 80 wird es sehr laut. Für mehr einfach noch einmal tippen.'));
     else if (d > 0 && r.volume > 80)
-      warn('Sehr laut (' + r.volume + ') – bitte Ohren und Lautsprecher schonen.');
+      warn(t('Sehr laut ({}) – bitte Ohren und Lautsprecher schonen.', r.volume));
   } catch (e) { showErr(e); }
   document.body.classList.remove('busy');
   setTimeout(refresh, 400);
@@ -252,7 +283,7 @@ function mk(parent, text, data) {
 }
 async function loadConfig() {
   try {
-    const c = await api('/api/config');
+    const c = await api('/api/config?lang=' + LANG);
     $('#scenes').textContent = ''; $('#inputs').textContent = '';
     $('#groups').textContent = ''; $('#modes').textContent = '';
     c.profiles.forEach((p, i) => {
@@ -260,7 +291,7 @@ async function loadConfig() {
       const sub = document.createElement('small'); sub.textContent = p.sub;
       $('#scenes').lastChild.append(document.createElement('br'), sub);
     });
-    c.inputs.forEach(x => mk($('#inputs'), x.name, {cmd: x.cmd, in: x.name.toLowerCase().replace(/ /g, '')}));
+    c.inputs.forEach(x => mk($('#inputs'), x.name, {cmd: x.cmd, in: x.match.join('|')}));
     c.groups.forEach(x => mk($('#groups'), x.name, {cmd: x.cmd}));
     c.modes.forEach(x => mk($('#modes'), x.name, {cmd: x.cmd, ms: x.key}));
     render();

@@ -30,6 +30,14 @@ from gi.repository import Gtk, Gdk, GLib, GdkPixbuf  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import marantz as m  # noqa: E402
 import sprachbefehle  # noqa: E402
+import i18n  # noqa: E402
+from i18n import _  # noqa: E402
+
+# Alle Beschriftungen laufen durch die Übersetzung (Deutsch → Englisch, falls nötig)
+_orig_label_set_text = Gtk.Label.set_text
+_orig_button_set_label = Gtk.Button.set_label
+Gtk.Label.set_text = lambda self, text: _orig_label_set_text(self, _(text))
+Gtk.Button.set_label = lambda self, text: _orig_button_set_label(self, _(text))
 
 VOICE_DIR = os.path.expanduser("~/.local/share/marantz-voice")
 
@@ -214,7 +222,7 @@ def label(text, *classes, xalign=0.5, markup=False):
 
 
 def button(text, cb, *classes):
-    b = Gtk.Button(label=text)
+    b = Gtk.Button(label=_(text))
     if cb:
         b.connect("clicked", lambda _b: cb())
     b.set_can_focus(False)
@@ -440,7 +448,7 @@ class App(Gtk.Window):
         rail.pack_start(top, False, False, 0)
         rail.pack_start(Gtk.Box(), True, True, 0)
         self.mic_btn = None
-        if os.path.isdir(os.path.join(VOICE_DIR, "model")):
+        if i18n.LANG == "de" and os.path.isdir(os.path.join(VOICE_DIR, "model")):
             self.mic_btn = button("🎤", self.voice_press, "mic")
             rail.pack_start(self.mic_btn, False, False, 0)
             rail.pack_start(label("SPRECHEN", "cap"), False, False, 0)
@@ -770,7 +778,7 @@ class App(Gtk.Window):
                 self.lib_list.add(self.lib_row(it))
             self.lib_list.show_all()
             n = self.lib_total
-            self.media_pos.set_text("leer" if not n else f"{n} Einträge" if n != 1 else "1 Eintrag")
+            self.media_pos.set_text("leer" if not n else _("{} Einträge").format(n) if n != 1 else "1 Eintrag")
             self.mark_playing()
 
         def fail(e):
@@ -890,13 +898,13 @@ class App(Gtk.Window):
         title = pl.get("title") or "–"
         self.mini_title.set_text(title)
         tm = f"{self.fmt_time(pl.get('elapsed') or 0)} / {self.fmt_time(pl.get('duration'))}"
-        state = {"PLAYING": "", "PAUSED_PLAYBACK": "Pause · ", "STOPPED": "Gestoppt · ",
-                 "TRANSITIONING": "lädt … · "}.get(pl.get("state", ""), "")
+        state = _({"PLAYING": "", "PAUSED_PLAYBACK": "Pause · ", "STOPPED": "Gestoppt · ",
+                   "TRANSITIONING": "lädt … · "}.get(pl.get("state", ""), ""))
         self.mini_sub.set_text(f"{state}{pl.get('artist') or ''}  ·  {tm}")
         self.np_title.set_text(title)
         self.np_artist.set_text(pl.get("artist") or "")
         self.np_album.set_text(tr(pl.get("album") or ""))
-        self.np_track.set_text(f"Titel {pl['index']} von {pl['count']}" if pl.get("count") else "")
+        self.np_track.set_text(_("Titel {} von {}").format(pl["index"], pl["count"]) if pl.get("count") else "")
         self.np_elapsed.set_text(self.fmt_time(pl.get("elapsed") or 0))
         self.np_total.set_text(self.fmt_time(pl.get("duration")))
         self.np_bar.queue_draw()
@@ -1036,7 +1044,7 @@ class App(Gtk.Window):
 
     def run_profile(self, idx):
         p = self.config["profiles"][idx]
-        self.status_sub.set_text(f"Szene „{p.get('name', '')}“ wird eingestellt …")
+        self.status_sub.set_text(_("Szene „{}“ wird eingestellt …").format(_(p.get("name", ""))))
         self.worker.put(lambda: m.run_profile(p))
 
     def chip_grid(self, items, cols, cb):
@@ -1059,7 +1067,7 @@ class App(Gtk.Window):
         page.pack_start(head, False, False, 0)
 
         row = Gtk.Box(spacing=12)
-        self.pe_name = Gtk.Entry(placeholder_text="Name der Szene")
+        self.pe_name = Gtk.Entry(placeholder_text=_("Name der Szene"))
         self.pe_name.set_max_length(24)
         self.pe_name.connect("changed", lambda e: self.pe_set("name", e.get_text().strip()))
         row.pack_start(self.pe_name, True, True, 0)
@@ -1156,7 +1164,7 @@ class App(Gtk.Window):
     def pe_render(self):
         p = self.pe["profiles"][self.pe["idx"]]
         for i, b in self.pe_tabs.items():
-            b.set_label(self.pe["profiles"][i].get("name") or f"Szene {i + 1}")
+            b.set_label(self.pe["profiles"][i].get("name") or _("Szene {}").format(i + 1))
         mark(self.pe_tabs, self.pe["idx"])
         mark(self.pe_power, p.get("power", "on"))
         self.pe_detail.set_sensitive(p.get("power", "on") != "off")
@@ -1168,7 +1176,7 @@ class App(Gtk.Window):
 
     def pe_save(self):
         for i, p in enumerate(self.pe["profiles"]):
-            p["name"] = (p.get("name") or f"Szene {i + 1}")[:24]
+            p["name"] = (p.get("name") or _("Szene {}").format(i + 1))[:24]
         cfg = m.load_config()
         cfg["profiles"] = self.pe["profiles"]
         m.save_config(cfg)
@@ -1192,9 +1200,9 @@ class App(Gtk.Window):
     def build_input_editor(self):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         page.pack_start(label("Eingänge in der Leiste", "media-title", xalign=0), False, False, 0)
-        page.pack_start(label(f"Bis zu {m.MAX_INPUTS} Eingänge antippen – in der Reihenfolge, in der "
-                              "sie erscheinen sollen. Nochmal tippen entfernt.", "status-sub",
-                              xalign=0), False, False, 0)
+        page.pack_start(label(_("Bis zu {} Eingänge antippen – in der Reihenfolge, in der "
+                                "sie erscheinen sollen. Nochmal tippen entfernt.").format(m.MAX_INPUTS),
+                              "status-sub", xalign=0), False, False, 0)
         self.ie_holder = Gtk.Box()
         page.pack_start(self.ie_holder, False, False, 8)
         page.pack_start(Gtk.Box(), True, True, 0)
@@ -1228,14 +1236,14 @@ class App(Gtk.Window):
         elif len(self.ie_sel) < m.MAX_INPUTS:
             self.ie_sel.append(code)
         else:
-            self.toast(f"Höchstens {m.MAX_INPUTS} Eingänge – erst einen anderen abwählen.")
+            self.toast(_("Höchstens {} Eingänge – erst einen anderen abwählen.").format(m.MAX_INPUTS))
         self.ie_render()
 
     def ie_render(self):
         names = dict(self.all_sources)
         for code, b in self.ie_btns.items():
             on = code in self.ie_sel
-            b.set_label(f"{self.ie_sel.index(code) + 1}.  {names[code]}" if on else names[code])
+            b.set_label(f"{self.ie_sel.index(code) + 1}.  {_(names[code])}" if on else names[code])
             set_cls(b, "sel", on)
 
     def ie_save(self):
@@ -1291,7 +1299,7 @@ class App(Gtk.Window):
         self.input_before_setup = next((c for c, n in self.all_sources
                                         if n.lower().replace(" ", "") == cur), None)
         name = m.source_name(self.input_before_setup) if self.input_before_setup else None
-        self.setup_close_btn.set_label(f"Schließen & zurück zu {name}" if name else "Menü schließen")
+        self.setup_close_btn.set_label(_("Schließen & zurück zu {}").format(_(name)) if name else "Menü schließen")
         self.cmd("MNMEN ON")
         self.stack.set_visible_child_name("setup")
         mark(self.nav_btns, None)
@@ -1390,7 +1398,7 @@ class App(Gtk.Window):
         group = group or self.geq["group"]
         self.geq_status.set_text("lädt …")
         in_bg(lambda: m.geq_read(group), self.geq_show,
-              lambda e: self.geq_status.set_text(f"Nicht erreichbar: {e}"))
+              lambda e: self.geq_status.set_text(_("Nicht erreichbar: {}").format(_(str(e)))))
 
     def geq_show(self, st):
         self.geq["group"] = st["group"]
@@ -1405,7 +1413,7 @@ class App(Gtk.Window):
 
     @staticmethod
     def geq_fmt(v):
-        return "0" if v == 0 else ("%+.1f" % v).replace(".0", "").replace(".", ",").replace("-", "−")
+        return "0" if v == 0 else ("%+.1f" % v).replace(".0", "").replace(".", i18n.DEC).replace("-", "−")
 
     def geq_changed(self, band, scale):
         v = round(scale.get_value() * 2) / 2
@@ -1429,7 +1437,7 @@ class App(Gtk.Window):
                 st = m.geq_set(group, vals)
                 GLib.idle_add(self.geq_saved, st, vals)
             except Exception as e:  # noqa: BLE001
-                GLib.idle_add(self.geq_status.set_text, f"Fehler: {e}")
+                GLib.idle_add(self.geq_status.set_text, _("Fehler: {}").format(_(str(e))))
         self.worker.put(job)
         return False
 
@@ -1462,10 +1470,10 @@ class App(Gtk.Window):
     def steppers(self, row, cb):
         """−3  −0,5  [Wert]  +0,5  +3"""
         row.pack_start(button("−3", lambda: cb(-3), "step", "big"), False, False, 0)
-        row.pack_start(button("−0,5", lambda: cb(-0.5), "step"), False, False, 0)
+        row.pack_start(button("−0" + i18n.DEC + "5", lambda: cb(-0.5), "step"), False, False, 0)
         val = label("–", "lv-val")
         row.pack_start(val, False, False, 0)
-        row.pack_start(button("+0,5", lambda: cb(+0.5), "step"), False, False, 0)
+        row.pack_start(button("+0" + i18n.DEC + "5", lambda: cb(+0.5), "step"), False, False, 0)
         row.pack_start(button("+3", lambda: cb(+3), "step", "big"), False, False, 0)
         return val
 
@@ -1666,7 +1674,7 @@ class App(Gtk.Window):
         self.voice_last = time.time()
         set_cls(self.mic_btn, "listening", False)
         if res.get("error"):
-            self.toast("Sprachsteuerung: " + res["error"])
+            self.toast(_("Sprachsteuerung: {}").format(res["error"]))
         elif not res.get("text"):
             self.toast("Nichts verstanden – bitte noch einmal.")
         else:
@@ -1684,7 +1692,7 @@ class App(Gtk.Window):
                 return self.toast(f"{said}\n→ {p.get('name')}")
         msg = None
         if a is None:
-            return self.toast(f"{said}\nDas habe ich leider nicht verstanden.", 5)
+            return self.toast(_("{}\nDas habe ich leider nicht verstanden.").format(said), 5)
         if a in ("schritt", "lautstaerke"):
             base = self.vol_base()
             if base is None:
@@ -1693,7 +1701,7 @@ class App(Gtk.Window):
             self.set_vol(int(round(base)) + c["wert"] if a == "schritt" else c["wert"])
             if self.vol_target >= m.LOUD:
                 return            # Warnung „sehr laut“ steht schon da
-            msg = f"Lautstärke {self.vol_target}"
+            msg = _("Lautstärke {}").format(self.vol_target)
         elif a == "cmd":
             if c["wert"] in ("SITV", "SIGAME", "SISERVER"):
                 self.select_input(c["wert"])
@@ -1707,7 +1715,7 @@ class App(Gtk.Window):
                 idx = next((i for i, p in enumerate(profs) if p.get("power") == "off"), None)
                 if idx is None:
                     self.cmd("ZMOFF")
-                    return self.toast(f"{said}\n→ Ausschalten")
+                    return self.toast(_("{}\n→ Ausschalten").format(said))
             self.run_profile(idx)
             msg = profs[idx].get("name")
         elif a == "ctl":
@@ -1715,18 +1723,18 @@ class App(Gtk.Window):
             msg = {"pause": "Pause", "play": "Weiter", "stop": "Stopp", "next": "Nächster Titel",
                    "prev": "Vorheriger Titel"}[c["wert"]]
         elif a == "kuenstler":
-            self.toast(f"{said}\nSuche in der Mediathek …", None)
+            self.toast(_("{}\nSuche in der Mediathek …").format(said), None)
             in_bg(lambda: api("/api/artists"),
                   lambda lst: self.voice_play_artist(text, c, lst),
-                  lambda e: self.toast(f"Mediathek nicht erreichbar:\n{e}", 6))
+                  lambda e: self.toast(_("Mediathek nicht erreichbar:\n{}").format(_(str(e))), 6))
             return
-        self.toast(f"{said}\n→ {msg}")
+        self.toast("{}\n→ {}".format(said, _(msg)))
 
     def voice_play_artist(self, text, c, lst):
         k = sprachbefehle.finde_kuenstler(c["name"], lst)
         if not k:
-            return self.toast(f"„{text}“\nKünstler „{c['name']}“ nicht gefunden.", 5)
-        self.toast(f"„{text}“\n→ Spiele {k['title']}" + (" (zufällig)" if c["zufall"] else ""), 5)
+            return self.toast(_("„{}“\nKünstler „{}“ nicht gefunden.").format(text, c["name"]), 5)
+        self.toast(_("„{}“\n→ Spiele {}").format(text, k["title"]) + (_(" (zufällig)") if c["zufall"] else ""), 5)
         self.show_page("media")
         self.media_stack.set_visible_child_name("now")
         q = "/api/play_artist?id=" + urllib.parse.quote(k["id"]) + ("&shuffle=1" if c["zufall"] else "")
@@ -1778,7 +1786,7 @@ class App(Gtk.Window):
             self.vol_step(+1 if up else -1, first)
 
     def show_err(self, e=None):
-        self.err_lbl.set_text(f"Receiver nicht erreichbar: {e}" if e else "")
+        self.err_lbl.set_text(_("Receiver nicht erreichbar: {}").format(_(str(e))) if e else "")
 
     def after_commands(self):
         GLib.timeout_add(400, self.refresh_once)
@@ -1802,7 +1810,7 @@ class App(Gtk.Window):
         self.cmd("MUON" if self.st["mute"] else "MUOFF")
 
     def scene(self, key, title):
-        self.status_sub.set_text(f"Szene „{title}“ wird eingestellt …")
+        self.status_sub.set_text(_("Szene „{}“ wird eingestellt …").format(_(title)))
         self.worker.put(lambda: m.run_scene(key))
 
     def vol_base(self):
@@ -1866,7 +1874,7 @@ class App(Gtk.Window):
             self.toast("Achtung: Ab 80 wird es sehr laut.\n"
                        "Für mehr einfach noch einmal drücken oder neu am Ring ansetzen.", warn=True)
         elif v > m.LOUD and v > (self.vol_shown or 0):
-            self.toast(f"Sehr laut ({v}) – bitte Ohren und Lautsprecher schonen.", warn=True)
+            self.toast(_("Sehr laut ({}) – bitte Ohren und Lautsprecher schonen.").format(v), warn=True)
         self.vol_target = v
         self.vol_local_until = time.time() + 2.5
         self.vol_shown = self.vol_target
@@ -1931,12 +1939,14 @@ class App(Gtk.Window):
         self.render_volume()
         cur_in = st["input"].lower().replace(" ", "")
         for code, b in self.in_btns.items():
-            set_cls(b, "sel", on and m.source_name(code).lower().replace(" ", "") == cur_in)
+            n = m.source_name(code)
+            names = {n.lower().replace(" ", ""), i18n.tr_lang(n, "en").lower().replace(" ", "")}
+            set_cls(b, "sel", on and cur_in in names)
         key = m.mode_key(st["surround"])
         for code, b in self.mode_btns.items():
             set_cls(b, "sel", on and MODE_KEYS[code] == key)
         if on:
-            self.status_main.set_text(st["input"] + "  ▾")
+            self.status_main.set_text(_(st["input"]) + "  ▾")
             self.status_sub.set_text(st["surround"])
         else:
             self.status_main.set_text("Standby")
@@ -1968,7 +1978,7 @@ class App(Gtk.Window):
         if v is not None and getattr(self, "last_drawn_vol", None) not in (None, v):
             self.pulse_glow()                     # Lautstärke hat sich geändert → aufglühen
         self.last_drawn_vol = v
-        self.vol_lbl.set_text("–" if v is None else ("%g" % v).replace(".", ","))
+        self.vol_lbl.set_text("–" if v is None else ("%g" % v).replace(".", i18n.DEC))
         muted = bool(self.st.get("mute"))
         set_cls(self.vol_lbl, "muted", muted)
         self.vol_cap.set_text("STUMM" if muted else "LAUTSTÄRKE")
@@ -1982,7 +1992,7 @@ class App(Gtk.Window):
     def on_status_err(self, e):
         self.show_err(e)
         self.status_main.set_text("Keine Verbindung")
-        self.status_sub.set_text("Receiver unter %s nicht erreichbar" % m.RECEIVER)
+        self.status_sub.set_text(_("Receiver unter %s nicht erreichbar") % m.RECEIVER)
 
     def load_settings(self):
         in_bg(m.settings, self.on_settings, self.show_err)
@@ -2042,6 +2052,8 @@ DE = {
 
 
 def tr(text):
+    if i18n.LANG != "de":
+        return text          # Englisch: Plex-Menüs bleiben im Original
     return DE.get(text.strip(), text) if text else text
 
 

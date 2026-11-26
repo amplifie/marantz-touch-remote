@@ -7,6 +7,8 @@ verbunden, abgefragt und wieder getrennt.
 """
 import html
 import os
+
+import i18n
 import re
 import socket
 import threading
@@ -186,8 +188,8 @@ def fmt_level(v: float) -> str:
 def level_db(v: float) -> str:
     """Anzeige als dB-Text, z. B. 43.5 → '−6,5 dB'"""
     d = v - 50
-    txt = ("%+.1f" % d).replace(".", ",").replace("-", "−")
-    return "0 dB" if d == 0 else txt.replace(",0", "") + " dB"
+    txt = ("%+.1f" % d).replace(".", i18n.DEC).replace("-", "−")
+    return "0 dB" if d == 0 else txt.replace(i18n.DEC + "0", "") + " dB"
 
 
 # ---------- Befehle ----------
@@ -508,6 +510,8 @@ MAX_INPUTS = 5
 def load_config() -> dict:
     import json
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
+    for p in cfg["profiles"]:                  # Startnamen in der Sprache des Systems
+        p["name"] = i18n._(p["name"])
     try:
         with open(CONFIG_FILE) as f:
             user = json.load(f)
