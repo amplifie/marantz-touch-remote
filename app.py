@@ -208,7 +208,8 @@ button.mic { min-height: 110px; font-size: 30pt; border-radius: 30px; }
 button.mic.listening { background-image: linear-gradient(to bottom, #e2c48c, #b9965a);
                        border-color: rgba(255,230,180,0.6);
                        box-shadow: 0 0 34px rgba(217,185,126,0.55); }
-.wordmark { font-size: 20pt; font-weight: 300; letter-spacing: 12px; color: #d9b97e; }
+.wordmark { font-size: 18pt; font-weight: 300; letter-spacing: 8px; color: #d9b97e; }
+.wordsub { font-size: 9pt; font-weight: 300; letter-spacing: 3px; color: #9a9da4; }
 .wordline { min-height: 1px; background-image: linear-gradient(to right, rgba(217,185,126,0), rgba(217,185,126,0.7)); }
 scrollbar slider { min-width: 6px; background-color: rgba(255,255,255,0.15); border-radius: 3px; }
 scrollbar { background-color: transparent; border: none; }
@@ -741,7 +742,7 @@ def in_bg(fn, done=None, err=None):
 # ---------- Hauptfenster ----------
 class App(Gtk.Window):
     def __init__(self):
-        super().__init__(title="Marantz")
+        super().__init__(title="Touch Remote for Marantz")
         here = Path(__file__).resolve().parent
         self.set_icon_from_file(str(here / "icon.svg"))
         self.set_default_size(1500, 1000)
@@ -821,7 +822,7 @@ class App(Gtk.Window):
 
         top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         top.set_halign(Gtk.Align.CENTER)
-        self.model_lbl = label("MARANTZ", "brand")          # wird durch das echte Modell ersetzt
+        self.model_lbl = label("RECEIVER", "brand")          # wird durch das echte Modell ersetzt
         top.pack_start(self.model_lbl, False, False, 0)
         self.power_btn = button("⏻", self.toggle_power, "power")
         self.power_btn.set_halign(Gtk.Align.CENTER)
@@ -907,8 +908,9 @@ class App(Gtk.Window):
         top.pack_start(Gtk.Box(), True, True, 0)
         mark_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         mark_box.set_valign(Gtk.Align.CENTER)
-        mark_box.pack_start(label("MARANTZ", "wordmark", xalign=1), False, False, 0)
+        mark_box.pack_start(label("TOUCH REMOTE", "wordmark", xalign=1), False, False, 0)
         mark_box.pack_start(add_cls(Gtk.Box(), "wordline"), False, False, 0)
+        mark_box.pack_start(label("for Marantz", "wordsub", xalign=1), False, False, 0)
         top.pack_start(mark_box, False, False, 6)
         col.pack_start(top, False, False, 4)
 

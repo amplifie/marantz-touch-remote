@@ -1,5 +1,5 @@
 #!/bin/bash
-# Marantz Touch Remote – install for the current user (no sudo needed).
+# Touch Remote for Marantz – install for the current user (no sudo needed).
 # Marantz-Fernbedienung installieren (für den aktuellen Benutzer, ohne sudo).
 # Linux with Python 3 and GTK 3 (e.g. Linux Mint, Ubuntu, Debian).
 set -e
@@ -31,7 +31,7 @@ mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/marantz.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Marantz
+Name=Touch Remote for Marantz
 Comment=Touch remote for Marantz AV receivers
 Comment[de]=Fernbedienung für den Marantz-Receiver
 Exec=/usr/bin/python3 $DEST/app.py
@@ -46,7 +46,7 @@ say "== Richte Hintergrunddienst ein (Mediathek-Wiedergabe, nur lokal) …" \
 mkdir -p "$HOME/.config/systemd/user"
 cat > "$HOME/.config/systemd/user/marantz-web.service" <<EOF
 [Unit]
-Description=Marantz Touch Remote (library playback, local only)
+Description=Touch Remote for Marantz (library playback, local only)
 After=network-online.target
 
 [Service]
@@ -66,6 +66,6 @@ systemctl --user enable --now marantz-web.service
 systemctl --user restart marantz-web.service
 
 echo
-say "Fertig! Im Startmenü nach „Marantz“ suchen." "Done! Look for “Marantz” in the start menu."
+say "Fertig! Im Startmenü nach „Touch Remote for Marantz“ suchen." "Done! Look for “Touch Remote for Marantz” in the start menu."
 say "Receiver und Plex-Server werden im Heimnetz automatisch gefunden." \
     "The receiver and Plex server are found automatically on your home network."

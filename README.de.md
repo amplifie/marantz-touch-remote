@@ -1,4 +1,4 @@
-# marantz-touch-remote
+# Touch Remote for Marantz
 
 🇬🇧 [English version](README.md)
 
@@ -49,7 +49,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0   # falls noch nicht
 ./install.sh
 ```
 
-Danach im Startmenü **„Marantz“** starten. Das Skript installiert nur für den aktuellen Benutzer
+Danach im Startmenü **„Touch Remote for Marantz“** starten. Das Skript installiert nur für den aktuellen Benutzer
 (nach `~/.local/share/marantz-fernbedienung`) und richtet den Hintergrunddienst
 `marantz-web` (systemd-User-Dienst) ein. Entfernen: `./uninstall.sh`.
 
