@@ -3,7 +3,7 @@
 🇩🇪 [Deutsche Version](README.de.md)
 
 A touch remote for Marantz AV receivers (built and tested with the **SR7010**) –
-as a lightweight Linux app (Python + GTK3) and as a web page for your phone.
+as a lightweight Linux app (Python + GTK3).
 Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs on any Linux with GTK3.
 
 > Unofficial hobby project – not affiliated with Marantz / Sound United.
@@ -19,7 +19,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 - **Customizable (✎):** three scene buttons with your own names – input, surround mode and volume
   via “Use current settings” – and an input bar with up to 5 inputs.
   All receiver inputs are also available from the header.
-  Stored in `~/.config/marantz/config.json` (also used by the phone web page)
+  Stored in `~/.config/marantz/config.json`
 - **Volume safety:** maximum 90, soft stop with a warning at 80
 - **Sound & Levels:** Audyssey MultEQ, Dynamic EQ + reference level, Dynamic Volume, Cinema EQ,
   subwoofer level, channel levels of all speakers (±0.5 / ±3 dB)
@@ -27,8 +27,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 - **Library:** browses a Plex server via UPnP and plays directly on the receiver –
   with cover art, seeking, queue and gapless playback (keeps playing in the background service)
 - **Setup menu on the TV** via an on-screen D-pad
-- **Phone web page** on port 8080
-- **English and German** – chosen automatically from the system / phone language
+- **English and German** – chosen automatically from the system language
 - Receiver and Plex server are **found automatically** on the home network (SSDP / ARP)
 - Optional **offline voice control** (German) with [Vosk](https://alphacephei.com/vosk/)
 
@@ -47,9 +46,6 @@ Then start **“Marantz”** from the menu. The script installs for the current 
 (to `~/.local/share/marantz-fernbedienung`) and sets up the background service
 `marantz-web` (systemd user service). Remove with `./uninstall.sh`.
 
-**Phone:** open `http://<IP-of-the-computer>:8080` – if a firewall is active, allow port 8080
-for your home network.
-
 **Language:** automatic (German if the system is set to German, otherwise English).
 To change it, tap the 🌐 globe at the top right (Auto · Deutsch · English) – or set `"language"` in `~/.config/marantz/config.json`.
 
@@ -64,10 +60,9 @@ To change it, tap the 🌐 globe at the top right (Auto · Deutsch · English) �
 |---|---|
 | `marantz.py` | Receiver control (HTTP commands, status XML, telnet queries, graphic EQ via the setup web page), command whitelist |
 | `upnp.py` | Plex library (UPnP ContentDirectory) and the receiver as a renderer (AVTransport) |
-| `server.py` | Background service: web page, JSON API, playback queue |
+| `server.py` | Background service (local only): JSON API for the app, playback queue |
 | `app.py` | GTK3 touch interface |
 | `i18n.py` | English / German translations |
-| `index.html` | Phone web page |
 | `voice.py`, `sprachbefehle.py` | Offline speech recognition and command parsing (German) |
 
 Python standard library + GTK/Cairo only – no other dependencies.

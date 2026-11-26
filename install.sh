@@ -24,7 +24,7 @@ fi
 
 say "== Kopiere Programm nach $DEST …" "== Copying program to $DEST …"
 mkdir -p "$DEST"
-cp app.py marantz.py upnp.py server.py i18n.py sprachbefehle.py voice.py mic-fix.sh index.html icon.svg "$DEST/"
+cp app.py marantz.py upnp.py server.py i18n.py sprachbefehle.py voice.py mic-fix.sh icon.svg "$DEST/"
 
 say "== Lege Startmenü-Eintrag an …" "== Creating menu entry …"
 mkdir -p "$HOME/.local/share/applications"
@@ -41,12 +41,12 @@ Categories=AudioVideo;Audio;
 StartupNotify=true
 EOF
 
-say "== Richte Hintergrunddienst ein (Mediathek + Handy-Webseite, Port 8080) …" \
-    "== Setting up background service (library playback + phone web page, port 8080) …"
+say "== Richte Hintergrunddienst ein (Mediathek-Wiedergabe, nur lokal) …" \
+    "== Setting up background service (library playback, local only) …"
 mkdir -p "$HOME/.config/systemd/user"
 cat > "$HOME/.config/systemd/user/marantz-web.service" <<EOF
 [Unit]
-Description=Marantz Touch Remote (library playback and web page, port 8080)
+Description=Marantz Touch Remote (library playback, local only)
 After=network-online.target
 
 [Service]
@@ -69,5 +69,3 @@ echo
 say "Fertig! Im Startmenü nach „Marantz“ suchen." "Done! Look for “Marantz” in the start menu."
 say "Receiver und Plex-Server werden im Heimnetz automatisch gefunden." \
     "The receiver and Plex server are found automatically on your home network."
-say "Handy-Webseite: http://<IP-dieses-Rechners>:8080  (evtl. Firewall-Port 8080 freigeben)" \
-    "Phone web page: http://<IP-of-this-computer>:8080  (you may need to open port 8080 in your firewall)"

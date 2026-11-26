@@ -92,7 +92,7 @@ button.scene { min-height: 118px; border-radius: 26px; }
 .scene-title { font-size: 15pt; font-weight: 500; }
 .scene-sub { font-size: 9pt; font-weight: 300; color: #9a9da4; }
 
-button.vol { min-height: 230px; font-size: 44pt; font-weight: 200; border-radius: 30px; }
+button.vol { min-height: 214px; font-size: 44pt; font-weight: 200; border-radius: 30px; }
 button.mute { min-height: 96px; font-size: 12pt; border-radius: 26px; }
 button.mute.muted { background-image: linear-gradient(to bottom, #a8463e, #7f312b); color: #fff;
                     border-color: rgba(255,150,140,0.3); }
@@ -122,9 +122,14 @@ button.toggle-sm { min-height: 62px; min-width: 90px; border-radius: 18px; font-
 .volnum.muted { color: #8a8d94; }
 button.topbtn { min-width: 60px; min-height: 60px; border-radius: 30px; padding: 0; font-size: 17pt;
                 color: #b9bcc2; }
-button.edit { min-width: 46px; min-height: 40px; border-radius: 14px; padding: 0 8px; font-size: 13pt;
-              background-image: none; background-color: transparent; border-color: rgba(255,255,255,0.10);
-              box-shadow: none; color: #b9a27a; }
+button.edit { min-width: 38px; min-height: 38px; border-radius: 19px; padding: 0; font-size: 12pt;
+              background-image: none; background-color: transparent;
+              border: 1px solid rgba(217,185,126,0.40); box-shadow: none; color: #d9b97e; }
+button.edit:active { background-color: rgba(217,185,126,0.18); }
+button.power.menu { color: #d9b97e; font-size: 26pt; }
+button.menuitem { min-height: 76px; min-width: 420px; border-radius: 20px; padding: 0 22px; }
+.menu-icon { font-size: 20pt; color: #d9b97e; }
+.menu-text { font-size: 15pt; font-weight: 500; }
 button.chip { min-height: 58px; border-radius: 16px; font-size: 12pt; padding: 4px 8px; }
 button.chip.tall { min-height: 86px; font-size: 14pt; }
 .compact button { min-height: 62px; font-size: 11pt; }
@@ -411,10 +416,7 @@ class App(Gtk.Window):
             add_cls(b, "nav")
         rail.pack_start(nav, False, False, 0)
 
-        cap = Gtk.Box()
-        cap.pack_start(label("SZENEN", "cap", xalign=0), True, True, 0)
-        cap.pack_start(button("✎", self.open_scene_editor, "edit"), False, False, 0)
-        rail.pack_start(cap, False, False, 10)
+        rail.pack_start(self.caption_with_edit("SZENEN", self.open_scene_editor), False, False, 10)
         self.scene_btns = []
         for idx in range(3):
             b = Gtk.Button()
@@ -441,12 +443,7 @@ class App(Gtk.Window):
     def build_right(self):
         rail = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14), "rail")
         rail.set_size_request(230, -1)
-        top = Gtk.Box(spacing=8, homogeneous=True)
-        top.set_halign(Gtk.Align.CENTER)
-        top.pack_start(button("⚙", self.open_setup, "topbtn"), False, False, 0)
-        top.pack_start(self.build_globe(), False, False, 0)
-        top.pack_start(button("✕", Gtk.main_quit, "topbtn"), False, False, 0)
-        rail.pack_start(top, False, False, 0)
+        rail.pack_start(self.build_menu(), False, False, 0)
         rail.pack_start(Gtk.Box(), True, True, 0)
         self.mic_btn = None
         if i18n.LANG == "de" and os.path.isdir(os.path.join(VOICE_DIR, "model")):
@@ -534,13 +531,7 @@ class App(Gtk.Window):
         ov.add_overlay(mid)
         page.pack_start(ov, True, True, 0)
 
-        cap = Gtk.Box()
-        ph = Gtk.Box()
-        ph.set_size_request(46, -1)                      # Platzhalter = Breite von ✎ → echte Mitte
-        cap.pack_start(ph, False, False, 0)
-        cap.pack_start(label("EINGANG", "cap"), True, True, 0)
-        cap.pack_start(button("✎", self.open_input_editor, "edit"), False, False, 0)
-        page.pack_start(cap, False, False, 0)
+        page.pack_start(self.caption_with_edit("EINGANG", self.open_input_editor), False, False, 0)
         self.in_holder = Gtk.Box()
         page.pack_start(self.in_holder, False, False, 0)
         self.in_btns = {}
@@ -1036,35 +1027,87 @@ class App(Gtk.Window):
         if code == "SISERVER":
             self.show_page("media")
 
+    def caption_with_edit(self, text, cb):
+        """Überschrift mittig, ✎ als kleiner runder Knopf direkt daneben."""
+        cap = Gtk.Box(spacing=10)
+        cap.set_halign(Gtk.Align.CENTER)
+        ph = Gtk.Box()
+        ph.set_size_request(38, -1)                  # gleich breiter Platzhalter → Text bleibt mittig
+        cap.pack_start(ph, False, False, 0)
+        lb = label(text, "cap")
+        lb.set_valign(Gtk.Align.CENTER)
+        cap.pack_start(lb, False, False, 0)
+        cap.pack_start(button("✎", cb, "edit"), False, False, 0)
+        return cap
+
     # ----- Sprache (🌐) -----
-    def build_globe(self):
-        """Sprachknopf: selbst gezeichneter Globus – sprachunabhängig erkennbar."""
-        b = Gtk.Button()
-        b.set_can_focus(False)
-        add_cls(b, "topbtn")
-        da = Gtk.DrawingArea()
-        da.set_size_request(26, 26)
-        da.set_halign(Gtk.Align.CENTER)          # nicht auf Knopfgröße aufziehen
-        da.set_valign(Gtk.Align.CENTER)
-        da.connect("draw", self.draw_globe)
-        b.add(da)
-        b.connect("clicked", lambda *_: self.open_lang_pop())
-        self.lang_pop = Gtk.Popover(relative_to=b, position=Gtk.PositionType.BOTTOM)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(14)
-        box.pack_start(label("SPRACHE / LANGUAGE", "cap", xalign=0), False, False, 4)
+    LANG_NAMES = {"auto": "Auto", "de": "Deutsch", "en": "English"}
+
+    def build_menu(self):
+        """Rechts oben: Spiegelbild des Ein/Aus-Knopfs links – ein runder Menü-Knopf."""
+        top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        top.set_halign(Gtk.Align.CENTER)
+        top.pack_start(label("MENÜ", "brand"), False, False, 0)
+        self.menu_btn = button("☰", self.open_menu, "power", "menu")
+        self.menu_btn.set_halign(Gtk.Align.CENTER)
+        top.pack_start(self.menu_btn, False, False, 0)
+        lang = m.load_config().get("language", "auto")
+        sub = Gtk.Box(spacing=8)
+        sub.set_halign(Gtk.Align.CENTER)
+        g = Gtk.DrawingArea()                      # gleicher Globus wie im Menü, passend zum Design
+        g.set_size_request(18, 18)
+        g.set_valign(Gtk.Align.CENTER)
+        g.connect("draw", self.draw_globe)
+        sub.pack_start(g, False, False, 0)
+        self.menu_sub = label(self.LANG_NAMES.get(lang, "Auto"), "status-sub")
+        sub.pack_start(self.menu_sub, False, False, 0)
+        top.pack_start(sub, False, False, 0)
+
+        self.menu_pop = Gtk.Popover(relative_to=self.menu_btn, position=Gtk.PositionType.LEFT)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_border_width(18)
+
+        def item(icon, text, cb):
+            b = Gtk.Button()
+            b.set_can_focus(False)
+            add_cls(b, "menuitem")
+            row = Gtk.Box(spacing=18)
+            ic = icon if isinstance(icon, Gtk.Widget) else label(icon, "menu-icon")
+            ic.set_size_request(34, -1)
+            row.pack_start(ic, False, False, 0)
+            row.pack_start(label(text, "menu-text", xalign=0), True, True, 0)
+            b.add(row)
+            b.connect("clicked", lambda *_: (self.menu_pop.popdown(), cb()))
+            return b
+
+        box.pack_start(item("⚙", "Einstellungsmenü am Fernseher", self.open_setup), False, False, 0)
+        lang_head = Gtk.Box(spacing=12)
+        globe = Gtk.DrawingArea()
+        globe.set_size_request(24, 24)
+        globe.connect("draw", self.draw_globe)
+        lang_head.pack_start(globe, False, False, 4)
+        # absichtlich zweisprachig, damit jeder seine Sprache findet
+        lang_head.pack_start(label("SPRACHE / LANGUAGE", "cap", xalign=0), False, False, 0)
+        box.pack_start(lang_head, False, False, 10)
+        row = Gtk.Box(spacing=8, homogeneous=True)
         self.lang_btns = {}
-        # Namen jeweils in der eigenen Sprache – absichtlich NICHT übersetzt
-        for code, name in (("auto", "Automatisch / Auto"), ("de", "Deutsch"), ("en", "English")):
-            btn = Gtk.Button(label=name)
+        for code, name in (("auto", "Auto"), ("de", "Deutsch"), ("en", "English")):
+            btn = Gtk.Button(label=name)          # Sprachnamen NICHT übersetzen
             btn.set_can_focus(False)
-            add_cls(btn, "popbtn")
+            add_cls(btn, "chip")
             btn.connect("clicked", lambda _b, c=code: self.choose_lang(c))
             self.lang_btns[code] = btn
-            box.pack_start(btn, False, False, 0)
+            row.pack_start(btn, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        box.pack_start(Gtk.Separator(), False, False, 8)
+        box.pack_start(item("✕", "App beenden", Gtk.main_quit), False, False, 0)
         box.show_all()
-        self.lang_pop.add(box)
-        return b
+        self.menu_pop.add(box)
+        return top
+
+    def open_menu(self):
+        mark(self.lang_btns, m.load_config().get("language", "auto"))
+        self.menu_pop.popup()
 
     @staticmethod
     def draw_globe(w, cr):
@@ -1092,13 +1135,8 @@ class App(Gtk.Window):
         cr.stroke()
         return False
 
-    def open_lang_pop(self):
-        cur = m.load_config().get("language", "auto")
-        mark(self.lang_btns, cur)
-        self.lang_pop.popup()
-
     def choose_lang(self, code):
-        self.lang_pop.popdown()
+        self.menu_pop.popdown()
         cfg = m.load_config()
         if cfg.get("language", "auto") == code:
             return

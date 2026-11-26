@@ -3,7 +3,7 @@
 🇬🇧 [English version](README.md)
 
 Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem **SR7010**) –
-als schlankes Linux-Programm (Python + GTK3) und als Webseite fürs Handy.
+als schlankes Linux-Programm (Python + GTK3).
 Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jedem Linux mit GTK3.
 
 > Inoffizielles Hobbyprojekt – nicht mit Marantz / Sound United verbunden.
@@ -19,7 +19,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 - **Frei belegbar (✎):** drei Szenen-Knöpfe mit eigenem Namen – Eingang, Klangmodus und
   Lautstärke per „Aktuellen Zustand übernehmen“ – und eine Eingangsleiste mit bis zu 5 Eingängen.
   Alle Eingänge des Receivers sind zusätzlich über die Kopfzeile erreichbar.
-  Gespeichert in `~/.config/marantz/config.json` (gilt auch für die Handy-Webseite)
+  Gespeichert in `~/.config/marantz/config.json`
 - **Sicherheit beim Pegel:** Maximum 90, ab 80 sanfter Stopp mit Warnhinweis
 - **Klang & Pegel:** Audyssey MultEQ, Dynamic EQ + Referenzpegel, Dynamic Volume, Cinema EQ,
   Subwoofer-Pegel, Kanalpegel aller Lautsprecher (±0,5 / ±3 dB)
@@ -29,8 +29,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 - **Setup-Menü am Fernseher** per Steuerkreuz
 - **Sprachsteuerung (optional, offline)** mit [Vosk](https://alphacephei.com/vosk/):
   „lauter“, „Filmabend“, „Spiele Adele“ …
-- **Handy-Webseite** auf Port 8080
-- **Deutsch und Englisch** – automatisch nach der Sprache von System bzw. Handy
+- **Deutsch und Englisch** – automatisch nach der Systemsprache
 - Receiver und Plex-Server werden im Heimnetz **automatisch gefunden** (SSDP / ARP)
 
 | EQ | Klang & Pegel |
@@ -48,8 +47,6 @@ Danach im Startmenü **„Marantz“** starten. Das Skript installiert nur für 
 (nach `~/.local/share/marantz-fernbedienung`) und richtet den Hintergrunddienst
 `marantz-web` (systemd-User-Dienst) ein. Entfernen: `./uninstall.sh`.
 
-**Handy:** `http://<IP-des-Rechners>:8080` – bei aktiver Firewall Port 8080 fürs Heimnetz freigeben.
-
 **Sprache:** automatisch (Deutsch, wenn das System auf Deutsch steht, sonst Englisch). Umstellen über den 🌐-Globus oben rechts (Automatisch · Deutsch · English) – oder `"language"` in `~/.config/marantz/config.json`.
 
 **Sprachsteuerung (optional, bisher nur Deutsch):** Vosk-Bibliothek nach `~/.local/share/marantz-voice/lib` und das
@@ -62,10 +59,9 @@ der 🎤-Knopf. `mic-fix.sh` aktiviert das eingebaute Digitalmikrofon des Surfac
 |---|---|
 | `marantz.py` | Steuerung des Receivers (HTTP-Befehle, Status-XML, Telnet-Abfragen, Grafik-EQ über die Setup-Webseite), Befehls-Whitelist |
 | `upnp.py` | Plex-Bibliothek (UPnP ContentDirectory) und Receiver als Abspielgerät (AVTransport) |
-| `server.py` | Hintergrunddienst: Webseite, JSON-API, Wiedergabe-Warteschlange |
+| `server.py` | Hintergrunddienst (nur lokal): JSON-API für die App, Wiedergabe-Warteschlange |
 | `app.py` | GTK3-Oberfläche fürs Touch-Display |
 | `i18n.py` | Übersetzungen Deutsch / Englisch |
-| `index.html` | Handy-Webseite |
 | `voice.py`, `sprachbefehle.py` | Offline-Spracherkennung und Befehlsverständnis |
 
 Nur Python-Standardbibliothek + GTK/Cairo – keine weiteren Abhängigkeiten.

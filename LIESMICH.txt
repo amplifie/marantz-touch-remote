@@ -19,10 +19,5 @@ BEDIENUNG
 - Lautstärke: + / − (halten = weiter) oder Ring mit dem Finger drehen
 - Mediathek: Titel antippen = sofort abspielen, Balken antippen = spulen
 
-HANDY
-Die Webseite läuft auf Port 8080 des Rechners: http://<IP-des-Rechners>:8080
-Ist eine Firewall aktiv, Port freigeben, z. B.:
-    sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp
-
 ENTFERNEN
     ./uninstall.sh

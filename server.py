@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Marantz-Fernbedienung: Hintergrunddienst.
+"""Marantz-Fernbedienung: Hintergrunddienst (nur auf diesem Rechner erreichbar).
 
-- liefert die Webseite fürs Handy aus (Port 8080)
-- stellt eine kleine JSON-Schnittstelle bereit (für Webseite und App)
+- stellt eine kleine JSON-Schnittstelle für die App bereit (127.0.0.1:8080)
 - verwaltet die Musik-Wiedergabe aus der Plex-Bibliothek mit Warteschlange
   (läuft weiter, auch wenn die App geschlossen ist)
 """
@@ -196,14 +195,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
         try:
-            if u.path in ("/", "/index.html"):
-                body = (HERE / "index.html").read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            elif u.path == "/api/status":
+            if u.path == "/api/status":
                 self._json(m.status())
             elif u.path == "/api/group":
                 self._json({"group": m.sound_group(q.get("s", ""))})
@@ -282,4 +274,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Marantz-Fernbedienung läuft auf Port {PORT}")
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    # Nur lokal: von anderen Geräten im Netz ist der Dienst nicht erreichbar
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
