@@ -17,8 +17,23 @@ Receiver und Plex-Server werden im Heimnetz automatisch gesucht.
 Lautstärke: maximal 90 (MAX_VOL). Ab 80 (LOUD) sanfter Stopp mit Hinweis – mit neuem Druck geht es weiter.
 
 BEDIENUNG
-- Vollbild: F11 an/aus · Beenden: Esc oder Menü ☰
+- Für Touchscreen und Maus; häufige Aktionen auch per Tastatur (F1 zeigt alle Tasten)
+- Vollbild: F11 an/aus · Beenden: Strg+Q oder Menü ☰ · Esc geht nur einen Schritt zurück
+- Mausrad über Ring oder Streifen = lauter / leiser
 - Minimieren: Menü ☰ → „Minimieren“; ein neuer Start holt die App zurück
+
+TASTEN
+  + - oder Pfeil hoch/runter   Lautstärke
+  M                            Stumm
+  Leertaste                    Wiedergabe / Pause
+  Pfeil links / rechts         10 Sekunden zurück / vor
+  N  B  S                      nächster / voriger Titel, Stopp
+  1 - 4                        Seiten
+  I, dann Ziffer               Eingang wählen
+  Strg + 1 - 3                 Szene starten
+  P zweimal                    Receiver ein / aus
+  Strg + M / Strg + Q          minimieren / beenden
+
 - Lautstärke: Streifen rechts: + / − antippen (halten = weiter) oder senkrecht wischen
   (Wischen endet bei 60, darüber mit „+“) – oder den Ring mit dem Finger drehen
 - Mediathek: Titel antippen = sofort abspielen, Balken antippen = spulen

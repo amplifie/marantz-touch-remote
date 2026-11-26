@@ -32,6 +32,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 - **Klang & Pegel:** Audyssey MultEQ, Dynamic EQ + Referenzpegel, Dynamic Volume, Cinema EQ,
   Subwoofer-Pegel, Kanalpegel aller Lautsprecher (±0,5 / ±3 dB)
 - **EQ:** Bass/Höhen und **9-Band-Grafik-EQ** pro Lautsprechergruppe
+- **Tastaturkürzel** und Mausrad, mit Hilfe in der App (`F1`)
 - **Mediathek:** durchsucht einen Plex-Server per UPnP und spielt direkt auf dem Receiver ab –
   mit Cover, Spulen, Warteschlange und lückenlosem Weiterspielen (läuft im Hintergrunddienst weiter)
 - **Setup-Menü am Fernseher** per Steuerkreuz
@@ -43,6 +44,36 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 | EQ | Klang & Pegel |
 |---|---|
 | ![EQ](docs/de-eq.png) | ![Klang & Pegel](docs/de-klang.png) |
+
+## Voraussetzungen und Bedienung
+
+- Linux mit Python 3, GTK 3 und systemd (für den Hintergrunddienst). Getestet nur unter
+  Linux Mint 22.3 XFCE (Surface 3); andere Systeme und Paketnamen können abweichen.
+- Gemacht für **Touchscreen und Maus**, mit Tastaturkürzeln für die häufigsten Aktionen.
+  Beliebige Knöpfe per Tastatur (`Tab`) anwählen geht noch nicht.
+- Mausrad über Drehregler oder Lautstärkestreifen: lauter / leiser (gleicher sanfter Stopp bei 80)
+
+### Tastaturkürzel
+
+`F1` oder `?` zeigt diese Liste in der App (auch über Menü ☰ → „Tastaturkürzel“).
+
+| Taste | Wirkung |
+|---|---|
+| `+` `-` `↑` `↓` | Lautstärke (sanfter Stopp bei 80, höchstens 90) |
+| `M` | Stumm |
+| `Leertaste` | Wiedergabe / Pause |
+| `←` `→` | 10 Sekunden zurück / vor |
+| `N` `B` `S` | Nächster / voriger Titel / Stopp |
+| `1` – `4` | Bedienung, Klang & Pegel, EQ, Mediathek |
+| `I`, dann Ziffer | Eingang wählen |
+| `Strg` + `1` – `3` | Szene starten |
+| `P` zweimal | Receiver ein / aus |
+| `Esc` | Einen Schritt zurück (Popup, Editor, Ordner) – beendet nicht |
+| `Strg` + `M` | Minimieren |
+| `Strg` + `Q` | Beenden |
+| `F11` | Vollbild an / aus |
+
+Beim Tippen in einem Textfeld sind die Kürzel aus.
 
 ## Download
 

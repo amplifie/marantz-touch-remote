@@ -32,6 +32,7 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 - **Sound & Levels:** Audyssey MultEQ, Dynamic EQ + reference level, Dynamic Volume, Cinema EQ,
   subwoofer level, channel levels of all speakers (±0.5 / ±3 dB)
 - **EQ:** bass/treble and a **9-band graphic EQ** per speaker group
+- **Keyboard shortcuts** and mouse wheel, with an in-app help (`F1`)
 - **Library:** browses a Plex server via UPnP and plays directly on the receiver –
   with cover art, seeking, queue and gapless playback (keeps playing in the background service)
 - **Setup menu on the TV** via an on-screen D-pad
@@ -42,6 +43,36 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 | EQ | Sound & Levels |
 |---|---|
 | ![EQ](docs/en-eq.png) | ![Sound & Levels](docs/en-sound.png) |
+
+## Requirements and controls
+
+- Linux with Python 3, GTK 3 and systemd (for the background service). Tested on
+  Linux Mint 22.3 XFCE (Surface 3) only; other distributions and package names may differ.
+- Made for **touch screens and mouse**, with keyboard shortcuts for the most common actions.
+  Selecting any button with the keyboard (`Tab`) is not possible yet.
+- Mouse wheel over the dial or the volume strip: volume up / down (same soft stop at 80)
+
+### Keyboard shortcuts
+
+Press `F1` or `?` in the app (or menu ☰ → “Keyboard shortcuts”) to see this list.
+
+| Key | Action |
+|---|---|
+| `+` `-` `↑` `↓` | Volume (soft stop at 80, maximum 90) |
+| `M` | Mute |
+| `Space` | Play / pause |
+| `←` `→` | 10 seconds back / forward |
+| `N` `B` `S` | Next / previous track / stop |
+| `1` – `4` | Control, Sound & Levels, EQ, Library |
+| `I`, then a digit | Choose input |
+| `Ctrl` + `1` – `3` | Start a scene |
+| `P` twice | Receiver on / off |
+| `Esc` | One step back (popup, editor, folder) – does not quit |
+| `Ctrl` + `M` | Minimize |
+| `Ctrl` + `Q` | Quit |
+| `F11` | Full screen on / off |
+
+While typing in a text field the shortcuts are off.
 
 ## Download
 

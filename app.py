@@ -198,6 +198,10 @@ button.play { min-width: 190px; }
 .toast { background-color: rgba(26,28,33,0.97); color: #f2f1ee; font-size: 15pt; font-weight: 500;
          border: 1px solid rgba(217,185,126,0.55); border-radius: 22px; padding: 20px 34px;
          box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
+.help { background-color: rgba(22,24,29,0.98); border: 1px solid rgba(217,185,126,0.55);
+        border-radius: 28px; padding: 32px 44px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); }
+.help-key { font-size: 13pt; font-weight: 600; color: #d9b97e; }
+.help-text { font-size: 13pt; font-weight: 300; color: #ecebe8; }
 .toast.warn { background-color: rgba(60,22,18,0.96); color: #ffe3dc;
               border-color: rgba(240,120,100,0.6); }
 button.pad { min-width: 190px; min-height: 160px; font-size: 30pt; border-radius: 32px; }
@@ -791,11 +795,16 @@ class App(Gtk.Window):
         outer.pack_start(self.build_left(), False, False, 0)
         outer.pack_start(self.build_center(), True, True, 0)
         outer.pack_start(self.build_right(), False, False, 0)
+        self.help_box = self.build_help()
+        top_ov.add_overlay(self.help_box)
 
         self.voice_proc, self.voice_busy, self.voice_last = None, False, time.time()
         GLib.timeout_add_seconds(60, self.voice_idle_check)
         self.connect("destroy", self.on_destroy)
+        self.keys_held, self.power_asked = {}, 0.0
         self.connect("key-press-event", self.on_key)
+        self.connect("key-release-event", self.on_key_release)
+        self.connect("focus-out-event", lambda *_: self.keys_held.clear())
         self.connect("window-state-event", self.on_window_state)
         # Mauszeiger: bei Touch unsichtbar, bei Touchpad/Maus kurz sichtbar
         self.cursor_timer = None
@@ -876,7 +885,10 @@ class App(Gtk.Window):
             rail.pack_start(Gtk.Box(), False, False, 14)
         rail.pack_start(label("LAUTSTÄRKE", "cap"), False, False, 6)
         self.vol_sent, self.vol_send_timer, self.vol_dragged = 0.0, None, False
+        self.wheel_last = self.wheel_sent = self.last_key = 0      # Zeitstempel in ms
         self.strip = VolumeStrip(self.ui, self.vol_step, self.vol_base, self.drag_vol, self.drag_vol_end)
+        self.strip.add_events(Gdk.EventMask.SCROLL_MASK)
+        self.strip.connect("scroll-event", self.on_wheel)
         rail.pack_start(self.strip, True, True, 0)          # füllt den freien Platz
         self.mute_btn = button("Stumm", self.toggle_mute, "mute")
         rail.pack_start(self.mute_btn, False, False, 6)
@@ -904,6 +916,7 @@ class App(Gtk.Window):
         pop_box.show_all()
         self.input_pop.add(pop_box)
         self.all_sources = [("SI" + c, m.SOURCE_NAMES[c]) for c in m.SOURCE_ORDER]
+        self.pop_numbered = False
         top.pack_start(head_ev, False, False, 0)
         top.pack_start(Gtk.Box(), True, True, 0)
         mark_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -944,6 +957,8 @@ class App(Gtk.Window):
         self.ring.connect("button-press-event", self.on_ring_press)
         self.ring.connect("motion-notify-event", self.on_ring_motion)
         self.ring.connect("button-release-event", self.on_ring_release)
+        self.ring.add_events(Gdk.EventMask.SCROLL_MASK)
+        self.ring.connect("scroll-event", self.on_wheel)
         ov.add(self.ring)
         mid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         mid.set_halign(Gtk.Align.CENTER)
@@ -1536,7 +1551,8 @@ class App(Gtk.Window):
         cr.fill()
         return False
 
-    def open_input_pop(self):
+    def open_input_pop(self, numbered=False):
+        self.pop_numbered = numbered        # über die Tastatur geöffnet: Ziffern anzeigen
         self.fill_input_pop()
         self.input_pop.popup()
         # Namen/Auswahl frisch vom Receiver holen (eigene Namen, nur benutzte Quellen)
@@ -1548,7 +1564,8 @@ class App(Gtk.Window):
             self.pop_grid.remove(c)
         cur = self.st.get("input", "").lower().replace(" ", "")
         for i, (code, name) in enumerate(self.all_sources):
-            b = button(name, lambda c=code: (self.input_pop.popdown(), self.select_input(c)), "popbtn")
+            text = f"{(i + 1) % 10}  ·  {_(name)}" if self.pop_numbered and i < 10 else name
+            b = button(text, lambda c=code: (self.input_pop.popdown(), self.select_input(c)), "popbtn")
             set_cls(b, "sel", name.lower().replace(" ", "") == cur)
             self.pop_grid.attach(b, i % 3, i // 3, 1, 1)
         self.pop_grid.show_all()
@@ -1632,6 +1649,7 @@ class App(Gtk.Window):
             row.pack_start(btn, True, True, 0)
         box.pack_start(row, False, False, 0)
         box.pack_start(Gtk.Separator(), False, False, 8)
+        box.pack_start(item("⌨", "Tastaturkürzel", self.toggle_help), False, False, 0)
         box.pack_start(item("▁", "Minimieren", self.iconify), False, False, 0)
         box.pack_start(item("✕", "App beenden", Gtk.main_quit), False, False, 0)
         box.show_all()
@@ -2622,19 +2640,169 @@ class App(Gtk.Window):
             GLib.idle_add(self.check_fit, gen, tries + 1, priority=GLib.PRIORITY_LOW)
         return False
 
+    # ----- Tastatur -----
+    SEEK_KEY = 10           # s je Druck auf ← / →
+    POWER_CONFIRM = 3       # s Zeit für den zweiten Druck auf P
+
+    def key_repeat(self, ev):
+        """True, wenn die Taste gehalten wird (automatische Wiederholung)."""
+        last = self.keys_held.get(ev.hardware_keycode)
+        self.keys_held[ev.hardware_keycode] = ev.time
+        return last is not None and self.since(ev, last) < 1000
+
+    def on_key_release(self, _w, ev):
+        self.keys_held.pop(ev.hardware_keycode, None)
+        return False
+
     def on_key(self, _w, ev):
-        if ev.keyval == Gdk.KEY_F11:
+        """True = Taste verarbeitet. Beim Tippen in Textfeldern wirken nur Esc, F11 und Strg."""
+        key = Gdk.keyval_to_lower(ev.keyval)
+        mods = ev.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK |
+                           Gdk.ModifierType.SUPER_MASK)
+        repeat = self.key_repeat(ev)
+        digit = next((n for n in range(10) if key in (getattr(Gdk, f"KEY_{n}"),
+                                                      getattr(Gdk, f"KEY_KP_{n}"))), None)
+        if mods:                            # Alt/Super gehören dem System
+            if mods != Gdk.ModifierType.CONTROL_MASK:
+                return False
+            if key == Gdk.KEY_q:
+                Gtk.main_quit()
+            elif key == Gdk.KEY_m:
+                self.iconify()
+            elif digit in (1, 2, 3):
+                if not repeat:
+                    self.run_profile(digit - 1)
+            else:
+                return False
+            return True
+        if key == Gdk.KEY_F11:
             (self.unfullscreen if self.is_full else self.fullscreen)()
             self.is_full = not self.is_full
-        elif ev.keyval == Gdk.KEY_Escape:
-            Gtk.main_quit()
-        elif ev.keyval in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up,
-                           Gdk.KEY_minus, Gdk.KEY_KP_Subtract, Gdk.KEY_Down):
+            return True
+        if key == Gdk.KEY_Escape:
+            self.step_back()
+            return True
+        focus = self.get_focus()
+        if isinstance(focus, Gtk.Entry) and focus.get_mapped():
+            return False                    # beim Tippen steuert die Tastatur nur das Textfeld
+        if key in (Gdk.KEY_F1, Gdk.KEY_question):
+            if not repeat:
+                self.toggle_help()
+            return True
+        if key in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up,
+                   Gdk.KEY_minus, Gdk.KEY_KP_Subtract, Gdk.KEY_Down):
             # gehaltene Taste (Wiederholung) zählt nicht als neuer Druck
-            first = time.time() - getattr(self, "last_key", 0) > 0.6
-            self.last_key = time.time()
-            up = ev.keyval in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up)
+            first = self.since(ev, self.last_key) >= self.NEW_PRESS
+            self.last_key = ev.time
+            up = key in (Gdk.KEY_plus, Gdk.KEY_KP_Add, Gdk.KEY_Up)
             self.vol_step(+1 if up else -1, first)
+            return True
+        if key == Gdk.KEY_m:
+            if not repeat:
+                self.toggle_mute()
+            return True
+        if self.help_box.get_visible():     # bei offener Hilfe nichts weiter auslösen
+            return True
+        if self.input_pop.get_visible():
+            if digit is not None and not repeat:
+                n = (digit - 1) % 10        # 1–9, 0 = zehnter Eingang
+                if n < len(self.all_sources):
+                    self.input_pop.popdown()
+                    self.select_input(self.all_sources[n][0])
+            elif key == Gdk.KEY_i and not repeat:
+                self.input_pop.popdown()
+            return True
+        if key in (Gdk.KEY_Left, Gdk.KEY_Right):
+            self.seek_by(self.SEEK_KEY if key == Gdk.KEY_Right else -self.SEEK_KEY)
+            return True
+        action = {Gdk.KEY_space: "toggle", Gdk.KEY_n: "next", Gdk.KEY_b: "prev",
+                  Gdk.KEY_s: "stop"}.get(key)
+        if action:
+            if not repeat and self.pl.get("title") and (action == "toggle" or self.pl.get("active")):
+                self.ctl(action)
+            return True
+        pages = ("main", "sound", "eq", "media")
+        if digit and digit <= len(pages):
+            if not repeat:
+                self.show_page(pages[digit - 1])
+            return True
+        if key == Gdk.KEY_i:
+            if not repeat:
+                self.open_input_pop(numbered=True)
+            return True
+        if key == Gdk.KEY_p:
+            if not repeat:
+                self.power_key()
+            return True
+        return False
+
+    def step_back(self):
+        """Esc: immer nur einen Schritt zurück, nie die App beenden."""
+        page = self.stack.get_visible_child_name()
+        if self.help_box.get_visible():
+            self.help_box.hide()
+        elif self.input_pop.get_visible():
+            self.input_pop.popdown()
+        elif self.menu_pop.get_visible():
+            self.menu_pop.popdown()
+        elif page in ("edit_scenes", "edit_inputs"):
+            self.show_page("main")      # wie „Abbrechen“
+        elif page == "setup":
+            self.close_setup()
+        elif page == "media":
+            if self.media_stack.get_visible_child_name() == "now":
+                self.media_stack.set_visible_child_name("list")
+            else:
+                self.lib_up()
+
+    def seek_by(self, seconds):
+        pl = self.pl
+        if not (pl.get("active") and pl.get("duration")):
+            return                      # gestoppt: Spulen würde die Wiedergabe starten
+        pending = self.seek_target if time.time() < self.seek_until else None
+        base = pending if pending is not None else pl.get("elapsed") or 0
+        self.seek_to(base + seconds)
+
+    def power_key(self):
+        """Ein/Aus erst beim zweiten Druck, damit nichts aus Versehen ausgeht."""
+        if time.time() - self.power_asked < self.POWER_CONFIRM:
+            self.power_asked = 0.0
+            self.toast_hide()
+            self.toggle_power()
+        else:
+            self.power_asked = time.time()
+            self.toast("Zum Ein-/Ausschalten noch einmal P drücken", self.POWER_CONFIRM)
+
+    # ----- Hilfe mit allen Tasten -----
+    KEY_HELP = (("+  −  ↑  ↓", "Lautstärke"), ("M", "Stumm"),
+                ("Leertaste", "Wiedergabe / Pause"), ("←  →", "10 Sekunden zurück / vor"),
+                ("N  B  S", "Nächster / voriger Titel / Stopp"),
+                ("1 – 4", "Bedienung, Klang & Pegel, EQ, Mediathek"),
+                ("I", "Eingang wählen, dann Ziffer"), ("Strg + 1 – 3", "Szene starten"),
+                ("P  P", "Receiver ein / aus"), ("Esc", "Einen Schritt zurück"),
+                ("Strg + M", "Minimieren"), ("Strg + Q", "App beenden"),
+                ("F11", "Vollbild an / aus"), ("F1  ?", "Diese Hilfe"))
+
+    def build_help(self):
+        card = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18), "help")
+        card.pack_start(label("TASTATUR", "cap", xalign=0), False, False, 0)
+        grid = Gtk.Grid(column_spacing=40, row_spacing=10)
+        for row, (keys, text) in enumerate(self.KEY_HELP):
+            grid.attach(label(keys, "help-key", xalign=0), 0, row, 1, 1)
+            grid.attach(label(text, "help-text", xalign=0), 1, row, 1, 1)
+        card.pack_start(grid, False, False, 0)
+        card.pack_start(button("Schließen", lambda: self.help_box.hide(), "chip"), False, False, 0)
+        card.show_all()
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
+        card.set_no_show_all(True)
+        card.hide()
+        return card
+
+    def toggle_help(self):
+        self.menu_pop.popdown()
+        self.input_pop.popdown()
+        self.help_box.set_visible(not self.help_box.get_visible())
 
     def show_err(self, e=None):
         """Fehler unten anzeigen; verschwindet nach 3 s von selbst."""
@@ -2697,6 +2865,27 @@ class App(Gtk.Window):
         if first:
             self.gesture_start = base    # neuer Druck: von hier aus zählt der sanfte Stopp
         self.set_vol(int(round(base)) + d)
+
+    # ----- Mausrad über Ring oder Streifen -----
+    WHEEL_STEP = 100        # ms; höchstens ein Schritt in dieser Zeit (Touchpads feuern sehr schnell)
+    NEW_PRESS = 600         # ms Ruhe = neues Ansetzen (erst dann geht es über 80 weiter)
+
+    @staticmethod
+    def since(ev, last):
+        """ms zwischen zwei Eingaben – laut Zeitstempel der Eingabe, nicht der Verarbeitung:
+        hängt die Oberfläche kurz, darf das nicht wie eine Pause aussehen."""
+        return (ev.time - last) % 2 ** 32
+
+    def on_wheel(self, _w, ev):
+        step = {Gdk.ScrollDirection.UP: 1, Gdk.ScrollDirection.DOWN: -1}.get(ev.direction)
+        if not step:
+            return False
+        new = self.since(ev, self.wheel_last) >= self.NEW_PRESS
+        self.wheel_last = ev.time
+        if new or self.since(ev, self.wheel_sent) >= self.WHEEL_STEP:
+            self.wheel_sent = ev.time
+            self.vol_step(step, new)
+        return True
 
     # ----- Ziehen am Lautstärke-Streifen -----
     DRAG_SEND_MS = 120          # beim Ziehen höchstens so oft ein Befehl
