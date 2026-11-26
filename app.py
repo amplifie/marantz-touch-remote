@@ -28,7 +28,8 @@ import cairo
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, GObject  # noqa: E402
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, GObject, PangoCairo  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import marantz as m  # noqa: E402
@@ -95,7 +96,10 @@ button.scene { min-height: 118px; border-radius: 26px; }
 .scene-title { font-size: 15pt; font-weight: 500; }
 .scene-sub { font-size: 9pt; font-weight: 300; color: #9a9da4; }
 
-button.vol { min-height: 214px; font-size: 44pt; font-weight: 200; border-radius: 30px; }
+.volstrip { font-size: 44pt; font-weight: 200; color: #ecebe8; border-radius: 30px;
+            background-color: #1d1f24; background-image: linear-gradient(to bottom, #262930, #1b1d22);
+            border: 1px solid rgba(255,255,255,0.07);
+            box-shadow: inset 0 1px rgba(255,255,255,0.06), 0 3px 10px rgba(0,0,0,0.35); }
 button.mute { min-height: 96px; font-size: 12pt; border-radius: 26px; }
 button.mute.muted { background-image: linear-gradient(to bottom, #a8463e, #7f312b); color: #fff;
                     border-color: rgba(255,150,140,0.3); }
@@ -435,6 +439,199 @@ class HoldButton(Gtk.Button):
         return False
 
 
+class VolumeStrip(Gtk.DrawingArea):
+    """Hoher Lautstärke-Streifen: oben „+“, unten „−“, dazwischen die Zahl; überall senkrecht ziehbar.
+
+    Tippen/Halten auf + und − wirkt wie bei HoldButton (nur löst ein kurzer Tipp erst beim
+    Loslassen aus, weil dort auch ein Ziehen beginnen darf). Gesendet wird nichts selbst:
+    step(richtung, neuer_druck), base() = aktueller Wert, drag(wert), drag_end()."""
+
+    ZONE = 214          # Höhe der +/−-Flächen bei der Referenzgröße (wie die früheren Kacheln)
+    MIN_H = 442         # Mindesthöhe: zwei frühere Kacheln samt Abstand
+    SLOP = 8            # ab so vielen Pixeln senkrechter Bewegung wird gezogen
+    GAIN = 1.2          # ganze Streifenhöhe = 1,2 × Maximum
+    DRAG_MAX = 60       # beim Ziehen hier Schluss, darüber nur schrittweise mit „+“
+
+    def __init__(self, ui, step, base, drag, drag_end):
+        super().__init__()
+        self.ui, self.step, self.base = ui, step, base
+        self.drag, self.drag_end = drag, drag_end
+        self.value, self.muted = None, False
+        self.press = None       # laufende Berührung
+        self.timer = None
+        self.set_size_request(-1, self.MIN_H)
+        add_cls(self, "volstrip")
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
+                        Gdk.EventMask.BUTTON1_MOTION_MASK)
+        self.connect("button-press-event", self.on_press)
+        self.connect("motion-notify-event", self.on_motion)
+        self.connect("button-release-event", self.on_release)
+        self.connect("grab-broken-event", lambda *_: self.cancel())
+        self.connect("unmap", lambda *_: self.cancel())
+
+    def set_state(self, value, muted):
+        if (value, muted) != (self.value, self.muted):
+            self.value, self.muted = value, muted
+            self.queue_draw()
+
+    @property
+    def dragging(self):
+        return bool(self.press and self.press["drag"])
+
+    def zone_height(self, H):
+        return min(self.ZONE * self.ui.f, 0.4 * H)    # in der Mitte bleibt immer Platz für die Zahl
+
+    def zone_at(self, x, y):
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        if not (0 <= x < W and 0 <= y < H):
+            return 0
+        z = self.zone_height(H)
+        return 1 if y < z else -1 if y >= H - z else 0
+
+    # ----- Bedienung -----
+    def stop_timer(self):
+        if self.timer:
+            GLib.source_remove(self.timer)
+            self.timer = None
+
+    def on_press(self, _w, ev):
+        if ev.type != Gdk.EventType.BUTTON_PRESS or ev.button != 1:
+            return True         # Doppeltipp-Zusatzereignisse nicht doppelt zählen
+        self.cancel()
+        zone = self.zone_at(ev.x, ev.y)
+        self.press = {"y": ev.y, "v": self.base(), "zone": zone, "drag": False,
+                      "repeated": False, "lit": zone}
+        if zone:
+            self.timer = GLib.timeout_add(450, self.start_repeat)
+        self.queue_draw()
+        return True
+
+    def start_repeat(self):
+        self.press["repeated"] = True
+        self.step(self.press["zone"], True)
+        self.timer = GLib.timeout_add(170, self.repeat)
+        return False
+
+    def repeat(self):
+        self.step(self.press["zone"], False)
+        return True
+
+    def on_motion(self, _w, ev):
+        p = self.press
+        if not p:
+            return False
+        if not p["drag"] and abs(ev.y - p["y"]) > self.SLOP:
+            self.stop_timer()
+            v = self.base()
+            if v is not None:
+                p.update(drag=True, v=float(v), limit=max(self.DRAG_MAX, v), lit=0)
+                self.queue_draw()
+        if p["drag"]:
+            self.move_to(ev.y)
+        elif p["lit"] and self.zone_at(ev.x, ev.y) != p["zone"]:
+            self.stop_timer()               # Finger von der Fläche gerutscht → nichts mehr auslösen
+            p.update(lit=0, zone=0)
+            self.queue_draw()
+        return True
+
+    def move_to(self, y):
+        p = self.press
+        new = p["v"] + (p["y"] - y) / max(1, self.get_allocated_height()) * m.MAX_VOL * self.GAIN
+        new = int(round(max(0, min(m.MAX_VOL, p["limit"], new))))
+        # Wer von oberhalb der Grenze herunterzieht, kommt nur bis zur Grenze wieder hinauf
+        p["limit"] = max(self.DRAG_MAX, min(p["limit"], new))
+        self.drag(new, p["v"])
+
+    def on_release(self, _w, ev):
+        p = self.press
+        if not p or ev.button != 1:
+            return False
+        if p["drag"]:
+            self.move_to(ev.y)
+        elif not p["repeated"] and p["zone"] and self.zone_at(ev.x, ev.y) == p["zone"]:
+            self.step(p["zone"], True)      # kurzer Tipp
+        self.cancel()
+        return True
+
+    def cancel(self):
+        """Berührung beenden; nach dem Ziehen immer den Endwert senden."""
+        self.stop_timer()
+        p, self.press = self.press, None
+        if p:
+            if p["drag"]:
+                self.drag_end()
+            self.queue_draw()
+        return False
+
+    # ----- Zeichnen -----
+    def do_draw(self, cr):
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        ctx, f = self.get_style_context(), self.ui.f
+        Gtk.render_background(ctx, cr, 0, 0, W, H)
+        rad = min(ctx.get_property("border-radius", ctx.get_state()), W / 2, H / 2)
+        cr.save()                               # alles Weitere in der abgerundeten Form halten
+        cr.new_sub_path()
+        for cx, cy, a in ((W - rad, rad, -0.5), (W - rad, H - rad, 0),
+                          (rad, H - rad, 0.5), (rad, rad, 1)):
+            cr.arc(cx, cy, rad, a * math.pi, (a + 0.5) * math.pi)
+        cr.close_path()
+        cr.clip()
+        v = self.value
+
+        def make_text(txt, scale):
+            layout = self.create_pango_layout(txt)
+            font = ctx.get_property("font", ctx.get_state()).copy()
+            font.set_size(int(font.get_size() * scale))
+            layout.set_font_description(font)
+            return layout, layout.get_pixel_size()
+
+        number = make_text("–" if v is None else ("%g" % v).replace(".", i18n.DEC), 0.75)
+        if v is not None and v > 0:
+            top = H * (1 - min(1.0, v / m.MAX_VOL))
+            grey = (0.55, 0.56, 0.60)
+            col = grey if self.muted else GOLD
+            cr.set_source_rgba(*col, 0.20)
+            cr.rectangle(0, top, W, H - top)
+            cr.fill()
+            cr.set_source_rgb(*col)
+            edge = max(1.0, 2 * f)
+            nw, nh = number[1]
+            if abs(top - H / 2) < 0.4 * nh:      # Kante nicht quer durch die Zahl: dort aussparen
+                side = (W - nw) / 2 - 10 * f
+                cr.rectangle(0, top, side, edge)
+                cr.rectangle(W - side, top, side, edge)
+            else:
+                cr.rectangle(0, top, W, edge)
+            cr.fill()
+        z = self.zone_height(H)
+        if self.press and self.press["lit"]:    # gedrückte Fläche abdunkeln
+            cr.set_source_rgba(0, 0, 0, 0.35)
+            cr.rectangle(0, 0 if self.press["lit"] > 0 else H - z, W, z)
+            cr.fill()
+        # feine Skala rechts: ein Strich je 10, bei 0/30/60/90 etwas länger
+        cr.set_line_width(1)
+        cr.set_source_rgba(1, 1, 1, 0.13)
+        for n in range(10, m.MAX_VOL, 10):
+            y = round(H * (1 - n / m.MAX_VOL)) + 0.5
+            cr.move_to(W - W * (0.11 if n % 30 == 0 else 0.07), y)
+            cr.line_to(W, y)
+        cr.stroke()
+        cr.restore()
+        Gtk.render_frame(ctx, cr, 0, 0, W, H)
+
+        def show(text, cy, color):
+            layout, (tw, th) = text
+            cr.set_source_rgb(*color)
+            cr.move_to((W - tw) / 2, cy - th / 2)
+            PangoCairo.show_layout(cr, layout)
+
+        light = (0.925, 0.922, 0.910)           # Schriftfarbe der Knöpfe (#ecebe8)
+        show(make_text("+", 1.0), z / 2, light)
+        show(make_text("−", 1.0), H - z / 2, light)
+        show(number, H / 2, (0.54, 0.55, 0.58) if self.muted else GOLD)
+        return False
+
+
 class Worker:
     """Schickt Befehle der Reihe nach an den Receiver (nichts geht verloren, nichts überholt sich)."""
 
@@ -626,16 +823,16 @@ class App(Gtk.Window):
         rail = add_cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14), "rail")
         rail.set_size_request(230, -1)
         rail.pack_start(self.build_menu(), False, False, 0)
-        rail.pack_start(Gtk.Box(), True, True, 0)
         self.mic_btn = None
         if i18n.LANG == "de" and os.path.isdir(os.path.join(VOICE_DIR, "model")):
             self.mic_btn = button("🎤", self.voice_press, "mic")
-            rail.pack_start(self.mic_btn, False, False, 0)
+            rail.pack_start(self.mic_btn, False, False, 14)
             rail.pack_start(label("SPRECHEN", "cap"), False, False, 0)
             rail.pack_start(Gtk.Box(), False, False, 14)
         rail.pack_start(label("LAUTSTÄRKE", "cap"), False, False, 6)
-        rail.pack_start(HoldButton("+", lambda first: self.vol_step(+1, first), "vol"), False, False, 0)
-        rail.pack_start(HoldButton("−", lambda first: self.vol_step(-1, first), "vol"), False, False, 0)
+        self.vol_sent, self.vol_send_timer, self.vol_dragged = 0.0, None, False
+        self.strip = VolumeStrip(self.ui, self.vol_step, self.vol_base, self.drag_vol, self.drag_vol_end)
+        rail.pack_start(self.strip, True, True, 0)          # füllt den freien Platz
         self.mute_btn = button("Stumm", self.toggle_mute, "mute")
         rail.pack_start(self.mute_btn, False, False, 6)
         rail.pack_start(Gtk.Box(), False, False, 30)
@@ -1886,6 +2083,89 @@ class App(Gtk.Window):
             self.ring_mid.set_margin_top(top)
         return False
 
+    @staticmethod
+    def draw_knob(c, cx, cy, r):
+        """Mattschwarzer Metall-Drehknopf in der Ringmitte (Licht von oben links).
+        Alle Maße sind Anteile vom Radius r. Außen endet alles bei 0,81·r, damit Glühen,
+        Punkt und Skala frei bleiben. Wird nur ins Grundbild gezeichnet (siehe draw_ring)."""
+        R, R_face = 0.76 * r, 0.675 * r        # Außenkante bzw. glatte Deckfläche
+        full = 2 * math.pi
+        light = -0.75 * math.pi                # Richtung zur Lichtquelle (oben links)
+        lx, ly = math.cos(light), math.sin(light)
+
+        def disk(radius, source):
+            c.set_source(source)
+            c.arc(cx, cy, radius, 0, full)
+            c.fill()
+
+        def shade(radius, *stops):
+            """Verlauf quer über den Knopf, von der Lichtseite zur Schattenseite."""
+            g = cairo.LinearGradient(cx + lx * radius, cy + ly * radius,
+                                     cx - lx * radius, cy - ly * radius)
+            for pos, rgba in stops:
+                g.add_color_stop_rgba(pos, *rgba)
+            return g
+
+        # weicher Schlagschatten, leicht nach unten versetzt
+        sy = cy + 0.025 * r
+        g = cairo.RadialGradient(cx, sy, 0.70 * r, cx, sy, 0.785 * r)
+        g.add_color_stop_rgba(0, 0, 0, 0, 0.75)
+        g.add_color_stop_rgba(1, 0, 0, 0, 0)
+        c.set_source(g)
+        c.arc(cx, sy, 0.785 * r, 0, full)
+        c.fill()
+
+        # Mantel mit feiner Riffelung: jede Rille hat eine helle und eine dunkle Flanke
+        disk(R, shade(R, (0, (0.23, 0.24, 0.26, 1)), (0.5, (0.10, 0.105, 0.115, 1)),
+                      (1, (0.045, 0.047, 0.052, 1))))
+        teeth = 150
+        step = full / teeth
+        c.set_line_cap(cairo.LINE_CAP_BUTT)
+        c.set_line_width(max(0.7, step * R * 0.36))
+        for i in range(teeth):
+            lit = 0.5 + 0.5 * math.cos(i * step - light)      # 1 = zum Licht, 0 = abgewandt
+            for offset, rgba in ((0.0, (1, 1, 1, 0.03 + 0.17 * lit * lit)),
+                                 (0.45, (0, 0, 0, 0.55))):
+                a = (i + offset) * step
+                ca, sa = math.cos(a), math.sin(a)
+                c.set_source_rgba(*rgba)
+                c.move_to(cx + R_face * ca, cy + R_face * sa)
+                c.line_to(cx + 0.992 * R * ca, cy + 0.992 * R * sa)
+                c.stroke()
+
+        # Außenkante: schmaler Lichtreflex
+        c.set_line_width(max(1.0, 0.005 * r))
+        c.set_source(shade(R, (0, (1, 1, 1, 0.30)), (0.45, (1, 1, 1, 0.04)),
+                           (1, (1, 1, 1, 0.10))))
+        c.arc(cx, cy, R, 0, full)
+        c.stroke()
+
+        # Fase zwischen Riffelung und Deckfläche: dunkle Fuge, dann angeschrägte Kante
+        disk(R_face + 0.008 * r, cairo.SolidPattern(0.02, 0.02, 0.025, 0.9))
+        disk(R_face, shade(R_face, (0, (0.36, 0.37, 0.40, 1)), (0.5, (0.12, 0.125, 0.14, 1)),
+                           (1, (0.20, 0.205, 0.225, 1))))
+
+        # matte Deckfläche
+        R_top = R_face - 0.018 * r
+        disk(R_top, shade(R_top, (0, (0.150, 0.155, 0.170, 1)), (0.55, (0.085, 0.089, 0.100, 1)),
+                          (1, (0.062, 0.065, 0.073, 1))))
+
+        # feine Drehspuren: viele dünne Kreise, die nur zum Licht hin und gegenüber schimmern
+        c.set_line_width(max(0.6, 0.0035 * r))
+        rings, levels = 70, 4
+        for level in range(levels):
+            # ungleichmäßige, aber immer gleiche Stärke → wirkt wie echtes Metall.
+            # Gleich starke Kreise gemeinsam zeichnen (4 Durchgänge statt 69, deutlich schneller)
+            k = 0.022 + 0.008 * level
+            c.set_source(shade(R_top, *[(pos, (1, 1, 1, k * s)) for pos, s in
+                                        ((0, 1.0), (0.30, 0.25), (0.5, 0.05),
+                                         (0.75, 0.20), (1, 0.55))]))
+            for i in range(1, rings):
+                if int(abs(math.sin(i * 12.9898)) * levels * 0.999) == level:
+                    c.new_sub_path()
+                    c.arc(cx, cy, R_top * i / rings, 0, full)
+            c.stroke()
+
     def draw_ring(self, w, cr):
         W, H = w.get_allocated_width(), w.get_allocated_height()
         cx, cy, r = self.ring_layout(W, H)
@@ -1897,10 +2177,13 @@ class App(Gtk.Window):
 
         glow = 0.0 if muted else getattr(self, "glow", 0.0)
         a_fill = a0 + sweep * frac
-        # Grundbild (Skalenstriche + Spur) nur einmal zeichnen und zwischenspeichern
-        if getattr(self, "_ring_key", None) != (W, H):
-            surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, H)
-            c2 = cairo.Context(surf)
+        # Grundbild (Knopf, Skalenstriche, Spur) nur bei neuer Größe zeichnen und zwischenspeichern
+        sf = w.get_scale_factor()
+        if getattr(self, "_ring_key", None) != (W, H, sf):
+            img = cairo.ImageSurface(cairo.FORMAT_ARGB32, W * sf, H * sf)
+            img.set_device_scale(sf, sf)
+            c2 = cairo.Context(img)
+            self.draw_knob(c2, cx, cy, r)
             c2.set_line_cap(cairo.LINE_CAP_ROUND)
             c2.set_line_width(max(1.0, 2 * u))
             for i in range(41):
@@ -1914,7 +2197,12 @@ class App(Gtk.Window):
             c2.set_source_rgba(1, 1, 1, 0.06)
             c2.arc(cx, cy, r, a0, a0 + sweep)
             c2.stroke()
-            self._ring_base, self._ring_key = surf, (W, H)
+            # Kopie passend zum Bildschirm: lässt sich beim Glühen schneller auflegen
+            surf = cr.get_target().create_similar(cairo.CONTENT_COLOR_ALPHA, W, H)
+            c3 = cairo.Context(surf)
+            c3.set_source_surface(img, 0, 0)
+            c3.paint()
+            self._ring_base, self._ring_key = surf, (W, H, sf)
         cr.set_source_surface(self._ring_base, 0, 0)
         cr.paint()
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
@@ -2268,6 +2556,37 @@ class App(Gtk.Window):
             self.gesture_start = base    # neuer Druck: von hier aus zählt der sanfte Stopp
         self.set_vol(int(round(base)) + d)
 
+    # ----- Ziehen am Lautstärke-Streifen -----
+    DRAG_SEND_MS = 120          # beim Ziehen höchstens so oft ein Befehl
+
+    def drag_vol(self, v, start):
+        if v == int(round(self.vol_base() or 0)):
+            return
+        self.gesture_start = start
+        self.vol_dragged = True
+        self.set_vol(v, send=False)          # Anzeige sofort, Senden gedrosselt
+        if self.vol_send_timer:
+            return
+        wait = self.DRAG_SEND_MS - int((time.monotonic() - self.vol_sent) * 1000)
+        if wait <= 0:
+            self.send_vol()
+        else:
+            self.vol_send_timer = GLib.timeout_add(wait, self.drag_send_later)
+
+    def drag_send_later(self):
+        self.vol_send_timer = None
+        self.send_vol()
+        return False
+
+    def drag_vol_end(self):
+        if self.vol_send_timer:
+            GLib.source_remove(self.vol_send_timer)
+            self.vol_send_timer = None
+        if self.vol_dragged:                 # Endwert immer senden (nie einen alten Wert von früher)
+            self.vol_dragged = False
+            self.vol_local_until = time.time() + 2.5
+            self.send_vol()
+
     # ----- Drehregler am Ring -----
     def ring_geom(self, ev):
         W, H = self.ring.get_allocated_width(), self.ring.get_allocated_height()
@@ -2308,7 +2627,7 @@ class App(Gtk.Window):
             self.ring.queue_draw()
         return False
 
-    def set_vol(self, v):
+    def set_vol(self, v, send=True):
         v = max(0, min(m.MAX_VOL, int(v)))
         start = getattr(self, "gesture_start", None)
         start = 0 if start is None else start
@@ -2323,6 +2642,11 @@ class App(Gtk.Window):
         self.vol_local_until = time.time() + 2.5
         self.vol_shown = self.vol_target
         self.render_volume()
+        if send:
+            self.send_vol()
+
+    def send_vol(self):
+        self.vol_sent = time.monotonic()
         if not self.worker.vol_pending:   # schnelle Klicks bündeln, immer den neuesten Wert senden
             self.worker.vol_pending = True
 
@@ -2389,7 +2713,8 @@ class App(Gtk.Window):
             self.status_done()
 
     def on_status(self, st):
-        if st == getattr(self, "_last_status", None) and time.time() >= self.vol_local_until:
+        if (st == getattr(self, "_last_status", None) and time.time() >= self.vol_local_until
+                and self.vol_shown == st["volume"]):
             return              # nichts geändert → nichts neu zeichnen (spart viel Rechenzeit)
         self._last_status = dict(st)
         self.st = st
@@ -2453,6 +2778,7 @@ class App(Gtk.Window):
         set_cls(self.vol_lbl, "muted", muted)
         self.vol_cap.set_text("STUMM" if muted else "LAUTSTÄRKE")
         set_cls(self.mute_btn, "muted", muted)
+        self.strip.set_state(v, muted)
         self.mute_btn.set_label("Ton an" if muted else "Stumm")
         key = (v, muted, bool(self.st.get("power", True)))
         if key != getattr(self, "_ring_state", None) or getattr(self, "glow", 0) > 0:

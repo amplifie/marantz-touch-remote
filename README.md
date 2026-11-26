@@ -13,14 +13,17 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 
 ## Features
 
-- **Control:** power, volume as a rotary dial (glows while you turn it), mute,
+- **Control:** power, volume as a matte black metal dial (its ring glows while you turn it), mute,
   sound mode buttons (Movie / Music / Game / Pure) and surround modes (Auto, Stereo, Direct,
   Pure Direct, Dolby, DTS, Neural:X, Multi Ch Stereo); the receiver model is detected automatically
 - **Customizable (✎):** three scene buttons with your own names – input, surround mode and volume
   via “Use current settings” – and an input bar with up to 5 inputs.
   All receiver inputs are also available from the header.
   Stored in `~/.config/marantz/config.json`
-- **Volume safety:** maximum 90, soft stop with a warning at 80
+- **Volume strip** on the right, within thumb reach: tap or hold “+” and “−”,
+  or swipe vertically; fill level and number stay in sync with the dial
+- **Volume safety:** maximum 90, soft stop with a warning at 80;
+  swiping on the strip already stops at 60, above that it only goes step by step with “+”
 - **Sound & Levels:** Audyssey MultEQ, Dynamic EQ + reference level, Dynamic Volume, Cinema EQ,
   subwoofer level, channel levels of all speakers (±0.5 / ±3 dB)
 - **EQ:** bass/treble and a **9-band graphic EQ** per speaker group

@@ -13,14 +13,17 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 
 ## Funktionen
 
-- **Bedienung:** Ein/Aus, Lautstärke als Drehregler (glüht beim Einstellen), Stumm,
+- **Bedienung:** Ein/Aus, Lautstärke als mattschwarzer Metall-Drehregler (der Rand glüht beim Einstellen), Stumm,
   Sound-Mode-Tasten (Film/Musik/Spiel/Pure) und Klangmodi (Auto, Stereo, Direct, Pure Direct,
   Dolby, DTS, Neural:X, Multi Ch Stereo); Receiver-Modell wird automatisch erkannt
 - **Frei belegbar (✎):** drei Szenen-Knöpfe mit eigenem Namen – Eingang, Klangmodus und
   Lautstärke per „Aktuellen Zustand übernehmen“ – und eine Eingangsleiste mit bis zu 5 Eingängen.
   Alle Eingänge des Receivers sind zusätzlich über die Kopfzeile erreichbar.
   Gespeichert in `~/.config/marantz/config.json`
-- **Sicherheit beim Pegel:** Maximum 90, ab 80 sanfter Stopp mit Warnhinweis
+- **Lautstärke-Streifen** rechts für den Daumen: „+“ und „−“ antippen oder gedrückt halten,
+  oder senkrecht wischen; Füllstand und Zahl laufen mit dem Drehregler synchron
+- **Sicherheit beim Pegel:** Maximum 90, ab 80 sanfter Stopp mit Warnhinweis;
+  Wischen am Streifen endet schon bei 60, darüber geht es dort nur schrittweise mit „+“
 - **Klang & Pegel:** Audyssey MultEQ, Dynamic EQ + Referenzpegel, Dynamic Volume, Cinema EQ,
   Subwoofer-Pegel, Kanalpegel aller Lautsprecher (±0,5 / ±3 dB)
 - **EQ:** Bass/Höhen und **9-Band-Grafik-EQ** pro Lautsprechergruppe
