@@ -72,23 +72,24 @@ def _find_plex() -> str:
             except socket.timeout:
                 continue
             loc = re.search(rb"(?im)^location:\s*(\S+)", data)
-            if loc and loc.group(1).decode() not in locations:
-                locations.append(loc.group(1).decode())
+            if loc:
+                address = loc.group(1).decode("utf-8", "ignore")
+                if address not in locations:
+                    locations.append(address)
     finally:
         s.close()
     for loc in filter(_is_web, locations):
         try:
             desc = m.read_limited(urllib.request.urlopen(loc, timeout=3)).decode("utf-8", "ignore")
-        except OSError:
+            if "plex" not in desc.lower():
+                continue
+            m_ = re.search(r"<serviceType>" + re.escape(CD) + r"</serviceType>.*?<controlURL>([^<]+)",
+                           desc, re.S)
+            ctrl = urllib.parse.urljoin(loc, m_.group(1)) if m_ else ""
+        except Exception:  # noqa: BLE001  (kaputte Adresse oder Antwort: nächstes Gerät)
             continue
-        if "plex" not in desc.lower():
-            continue
-        m_ = re.search(r"<serviceType>" + re.escape(CD) + r"</serviceType>.*?<controlURL>([^<]+)",
-                       desc, re.S)
-        if m_:
-            ctrl = urllib.parse.urljoin(loc, m_.group(1))
-            if _is_web(ctrl):
-                return ctrl
+        if _is_web(ctrl):
+            return ctrl
     raise RuntimeError("Plex-Server nicht gefunden")
 
 

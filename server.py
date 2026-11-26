@@ -466,6 +466,8 @@ def public(item):
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 10        # s; stumme Verbindungen nicht ewig offen halten
+
     def log_message(self, *args):  # keine Logs → schont den eMMC-Speicher
         pass
 

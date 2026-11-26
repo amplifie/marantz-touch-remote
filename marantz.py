@@ -51,6 +51,7 @@ SCENES = {
 }
 
 _CH = "|".join(c for c, _ in CHANNELS)
+_LEVEL = r"((3[89]|[45]\d|6[01])[05]?|620?)"   # Pegel 38…62 (= −12…+12 dB), auch halbe Schritte
 ALLOWED = re.compile(
     r"^(ZMON|ZMOFF|PWON|MUON|MUOFF|MVDOWN|MV\d{2,3}|"
     r"SI(TV|GAME|SERVER|BD|DVD|BT|IRADIO|USB/IPOD|SAT/CBL|MPLAY|AUX1|AUX2|CD|PHONO|TUNER|FAVORITES|NET)|"
@@ -58,12 +59,12 @@ ALLOWED = re.compile(
     r"NEURAL:X|MCH STEREO|MOVIE|MUSIC|GAME)|"
     r"PSMULTEQ:(AUDYSSEY|BYP\.LR|FLAT|OFF)|PSDYNEQ (ON|OFF)|PSREFLEV (0|5|10|15)|"
     r"PSDYNVOL (OFF|LIT|MED|HEV)|PSCINEMA EQ\.(ON|OFF)|"
-    r"PSSWL (ON|OFF|UP|DOWN|\d{2,3})|"
+    r"PSSWL (ON|OFF|DOWN|" + _LEVEL + r")|"
     r"PSTONE CTRL (ON|OFF)|PSBAS (UP|DOWN|4[4-9]|5[0-6])|PSTRE (UP|DOWN|4[4-9]|5[0-6])|PSGEQ (ON|OFF)|"
-    r"CV(" + _CH + r") (UP|DOWN|\d{2,3})|"
+    r"CV(" + _CH + r") (DOWN|" + _LEVEL + r")|"
     r"NS9[0-4A-EXY]|"
     r"MNMEN (ON|OFF)|MNCUP|MNCDN|MNCLT|MNCRT|MNENT|MNRTN|MNOPT|MNINF)\Z",  # Setup-Menü am TV
-    re.ASCII)  # \Z: kein Zeilenumbruch am Ende; ASCII: \d meint nur 0–9. Kein MVUP (ginge über MAX_VOL)
+    re.ASCII)  # \Z: kein Zeilenumbruch am Ende; ASCII: \d meint nur 0–9. Kein „UP“ ohne Zielwert (ginge über die Grenzen)
 
 _status_lock = threading.Lock()
 _telnet_lock = threading.Lock()
@@ -539,6 +540,20 @@ DEFAULT_CONFIG = {
 MAX_INPUTS = 5
 
 
+def _clean_profile(p, default: dict) -> dict:
+    """Eine Szene aus der Datei: Unbrauchbares weglassen statt abzustürzen."""
+    if not isinstance(p, dict):
+        return default
+    p = dict(p)
+    for key in ("name", "power", "input", "mode"):
+        if key in p and not isinstance(p[key], str):
+            del p[key]
+    v = p.get("volume")
+    if "volume" in p and not (type(v) in (int, float) and -1000 < v < 1000):    # auch NaN, unendlich
+        del p["volume"]
+    return p
+
+
 def load_config() -> dict:
     import json
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
@@ -547,14 +562,17 @@ def load_config() -> dict:
     try:
         with open(CONFIG_FILE) as f:
             user = json.load(f)
+        if not isinstance(user, dict):
+            return cfg
         if isinstance(user.get("profiles"), list) and len(user["profiles"]) == 3:
-            cfg["profiles"] = user["profiles"]
+            cfg["profiles"] = [_clean_profile(p, d) for p, d in zip(user["profiles"], cfg["profiles"])]
         if user.get("language") in ("auto", "de", "en"):
             cfg["language"] = user["language"]
         if isinstance(user.get("inputs"), list) and user["inputs"]:
-            cfg["inputs"] = [c for c in user["inputs"]
-                             if str(c).startswith("SI") and ALLOWED.match(str(c))][:MAX_INPUTS]
-    except (OSError, ValueError):
+            inputs = [c for c in user["inputs"]
+                      if isinstance(c, str) and c.startswith("SI") and ALLOWED.match(c)][:MAX_INPUTS]
+            cfg["inputs"] = inputs or cfg["inputs"]
+    except (OSError, ValueError, RecursionError):
         pass
     return cfg
 

@@ -14,6 +14,7 @@ import json
 import os
 import queue
 import re
+import select
 import subprocess
 import sys
 import syslog
@@ -665,6 +666,9 @@ SERVER = "http://127.0.0.1:8080"   # Hintergrunddienst (Bibliothek + Wiedergabe)
 LIB_PAGE = 60       # Einträge je Nachladen in der Mediathek (mehr lässt die Oberfläche stocken)
 COVER_BYTES = 8 * 1024 * 1024
 COVER_PIXELS = 16_000_000          # größere Bilder gar nicht erst entpacken
+COVER_RETRY = 30    # s bis zum neuen Versuch, wenn ein Cover nicht geladen werden konnte
+VOICE_START_WAIT = 60   # s höchstens für das Laden des Sprachmodells
+VOICE_WAIT = 20         # s höchstens auf eine Erkennung warten
 SEEK_DELAY = 300    # ms Ruhe nach dem letzten Tipp auf den Balken, dann spulen
 STATUS_FAILS = 3    # so viele Fehlabfragen in Folge, bis "Keine Verbindung" erscheint
 
@@ -1434,7 +1438,19 @@ class App(Gtk.Window):
                 self.art_pb = pb
                 self.mini_cover.queue_draw()
                 self.np_cover.queue_draw()
-        in_bg(fetch, done, lambda e: None)
+
+        def retry():
+            if self.art_url == url and self.art_pb is None:
+                self.art_url = None             # die nächste Statusmeldung lädt neu
+            return False
+
+        def fail(_e):
+            if self.art_url == url:             # nie das Cover des vorigen Titels stehen lassen
+                self.art_pb = None
+                self.mini_cover.queue_draw()
+                self.np_cover.queue_draw()
+                GLib.timeout_add_seconds(COVER_RETRY, retry)
+        in_bg(fetch, done, fail)
 
     @staticmethod
     def fmt_time(sec):
@@ -2409,6 +2425,15 @@ class App(Gtk.Window):
         self.toast("Sprachsteuerung wird geladen …" if starting else "🎤  Ich höre zu …", None)
         threading.Thread(target=self.voice_run, daemon=True).start()
 
+    @staticmethod
+    def voice_line(p, seconds):
+        """Eine Antwortzeile vom Hilfsprozess; hängt er, wird er beendet."""
+        if not select.select([p.stdout], [], [], seconds)[0]:
+            p.kill()
+            p.wait()
+            raise RuntimeError(_("keine Antwort"))
+        return p.stdout.readline()
+
     def voice_run(self):
         try:
             p = self.voice_proc
@@ -2417,12 +2442,12 @@ class App(Gtk.Window):
                                       "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, text=True, bufsize=1)
                 self.voice_proc = p
-                if not p.stdout.readline():
+                if not self.voice_line(p, VOICE_START_WAIT):
                     raise RuntimeError("startet nicht")
                 GLib.idle_add(self.toast, "🎤  Ich höre zu …", None)
             p.stdin.write(json.dumps({"max_sec": 6}) + "\n")
             p.stdin.flush()
-            res = json.loads(p.stdout.readline() or '{"error": "keine Antwort"}')
+            res = json.loads(self.voice_line(p, VOICE_WAIT) or '{"error": "keine Antwort"}')
         except Exception as e:  # noqa: BLE001
             res = {"error": str(e)}
         GLib.idle_add(self.voice_done, res)
@@ -2620,6 +2645,8 @@ class App(Gtk.Window):
             GLib.timeout_add(600, self.load_settings_once)
 
     def cmd(self, c):
+        if c.startswith("MU"):          # Stumm von Hand: Szene setzt danach keine Lautstärke mehr
+            self.vol_user_gen += 1
         self.worker.put(lambda: m.send(c))
 
     def set_cmd(self, c):

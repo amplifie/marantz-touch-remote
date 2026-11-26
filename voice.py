@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from array import array
 
@@ -54,6 +55,8 @@ def listen(grammar=None, max_sec=6.0, on_level=None):
     proc = subprocess.Popen(["parec", "--raw", "--format=s16le", f"--rate={RATE}", "--channels=1",
                              "--latency-msec=100"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     text, peak, start, heard = "", 0, time.time(), False
+    watchdog = threading.Timer(max_sec + 3, proc.kill)  # liefert parec nichts, endet read() so
+    watchdog.start()
     try:
         while time.time() - start < max_sec:
             data = proc.stdout.read(3200)          # 0,1 s Audio
@@ -71,6 +74,7 @@ def listen(grammar=None, max_sec=6.0, on_level=None):
         if not heard:
             text = json.loads(rec.FinalResult()).get("text", "")
     finally:
+        watchdog.cancel()
         proc.terminate()
         try:
             proc.wait(timeout=1)

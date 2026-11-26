@@ -45,6 +45,7 @@ EN = {
     "Hintergrunddienst antwortet nicht": "Background service not responding",
     "Zugriff nicht erlaubt": "Access not allowed",
     "Titel nicht gefunden": "Track not found",
+    "keine Antwort": "no response",
     "Antwort aus dem Netz ist zu groß": "Network reply is too large",
     "Titel lässt sich nicht starten": "Track does not start",
     "Receiver ist nicht bereit zum Spulen": "Receiver is not ready to seek",
