@@ -34,7 +34,9 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 - **EQ:** Bass/Höhen und **9-Band-Grafik-EQ** pro Lautsprechergruppe
 - **Tastaturkürzel** und Mausrad, mit Hilfe in der App (`F1`)
 - **Mediathek:** durchsucht einen Plex-Server per UPnP und spielt direkt auf dem Receiver ab –
-  mit Cover, Spulen, Warteschlange und lückenlosem Weiterspielen (läuft im Hintergrunddienst weiter)
+  mit Cover, Spulen, Warteschlange und lückenlosem Weiterspielen (läuft im Hintergrunddienst weiter);
+  zeigt Format, Bitrate, Bittiefe und Abtastrate des Titels (z. B. FLAC · Ø 2900 kbit/s · 24 Bit / 96 kHz;
+  Ø = Durchschnitt bei wechselnder Bitrate)
 - **Setup-Menü am Fernseher** per Steuerkreuz
 - **Sprachsteuerung (optional, offline)** mit [Vosk](https://alphacephei.com/vosk/):
   „lauter“, „Filmabend“, „Spiele Adele“ …

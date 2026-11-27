@@ -34,7 +34,9 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
 - **EQ:** bass/treble and a **9-band graphic EQ** per speaker group
 - **Keyboard shortcuts** and mouse wheel, with an in-app help (`F1`)
 - **Library:** browses a Plex server via UPnP and plays directly on the receiver –
-  with cover art, seeking, queue and gapless playback (keeps playing in the background service)
+  with cover art, seeking, queue and gapless playback (keeps playing in the background service);
+  shows format, bitrate, bit depth and sample rate of the track (e.g. FLAC · Ø 2900 kbit/s · 24 Bit / 96 kHz;
+  Ø = average for variable bitrate)
 - **Setup menu on the TV** via an on-screen D-pad
 - **English and German** – chosen automatically from the system language
 - Receiver and Plex server are **found automatically** on the home network (SSDP / ARP)

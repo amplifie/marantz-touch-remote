@@ -129,6 +129,117 @@ def _secs(t: str):
     return int(v)
 
 
+_FORMATS = {"audio/mpeg": "MP3", "audio/mp3": "MP3", "audio/flac": "FLAC", "audio/x-flac": "FLAC",
+            "audio/wav": "WAV", "audio/x-wav": "WAV", "audio/l16": "PCM", "audio/x-ms-wma": "WMA",
+            "audio/ogg": "OGG", "audio/aac": "AAC", "audio/mp4": "M4A", "audio/x-m4a": "M4A"}
+
+
+def _audio_info(res, uri: str) -> dict:
+    """Format, Bitrate (kbit/s) und Abtastrate (Hz) laut Server; Unbekanntes bleibt leer."""
+    def number(name):
+        v = res.get(name, "")
+        return int(v) if re.fullmatch(r"[0-9]{1,9}", v) else 0
+    proto = res.get("protocolInfo", "").split(":", 3) + ["", "", "", ""]
+    mime = proto[2].split(";")[0].lower()
+    ext = os.path.splitext(urllib.parse.urlparse(uri).path)[1][1:].lower()
+    fmt = _FORMATS.get(mime) or (ext.upper() if ext.isalnum() and len(ext) <= 5 else "")
+    if ext == "wav":
+        fmt = "WAV"
+    elif fmt == "M4A" and "DLNA.ORG_PN=AAC" in proto[3]:
+        fmt = "AAC"
+    # UPnP gibt "bitrate" in Byte pro Sekunde an. Bei WAV meldet Plex eine falsche
+    # Abtastrate (48 statt 44,1 kHz, an echten Dateien geprüft) – dort weglassen.
+    return {"format": fmt, "kbps": round(number("bitrate") * 8 / 1000),
+            "rate": 0 if fmt in ("WAV", "PCM") else number("sampleFrequency")}
+
+
+# ---------- Angaben direkt aus der Datei ----------
+HEAD = 16 * 1024        # so viel wird höchstens am Stück gelesen
+_MP3_KBPS = {True: (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),   # MPEG 1
+             False: (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160)}      # MPEG 2/2.5
+_MP3_RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
+
+
+def _read_part(uri: str, start: int) -> bytes:
+    req = urllib.request.Request(uri, headers={"Range": f"bytes={start}-{start + HEAD - 1}"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        if start and r.status != 206:       # Server kann nicht mittendrin anfangen
+            return b""
+        return r.read(HEAD)
+
+
+def _flac_info(d: bytes) -> dict:
+    if d[:4] != b"fLaC" or len(d) < 26 or d[4] & 0x7F:     # erster Block: STREAMINFO
+        return {}
+    v = int.from_bytes(d[18:26], "big")
+    rate, bits = v >> 44, ((v >> 36) & 31) + 1
+    # FLAC schwankt immer: die Bitrate ist ein Durchschnitt
+    return {"rate": rate, "bits": bits, "avg": True} if rate else {}
+
+
+def _wav_info(d: bytes) -> dict:
+    if d[:4] != b"RIFF" or d[8:12] != b"WAVE":
+        return {}
+    pos = 12
+    while pos + 8 <= len(d):
+        size = int.from_bytes(d[pos + 4:pos + 8], "little")
+        if d[pos:pos + 4] == b"fmt " and size >= 16 and pos + 24 <= len(d):
+            rate = int.from_bytes(d[pos + 12:pos + 16], "little")
+            per_s = int.from_bytes(d[pos + 16:pos + 20], "little")
+            bits = int.from_bytes(d[pos + 22:pos + 24], "little")
+            return {"rate": rate, "bits": bits, "kbps": round(per_s * 8 / 1000),
+                    "avg": False} if rate and per_s else {}
+        pos += 8 + size + (size & 1)
+    return {}
+
+
+def _mp3_frame(d: bytes, i: int):
+    """(Länge in Byte, kbit/s, Hz) eines MP3-Rahmens ab Stelle i, sonst None."""
+    if i + 4 > len(d) or d[i] != 0xFF or d[i + 1] & 0xE6 != 0xE2:       # nur Layer III
+        return None
+    version, b, r = (d[i + 1] >> 3) & 3, d[i + 2] >> 4, (d[i + 2] >> 2) & 3
+    if version == 1 or not 0 < b < 15 or r == 3:
+        return None
+    kbps, rate = _MP3_KBPS[version == 3][b - 1], _MP3_RATES[version][r]
+    size = (144 if version == 3 else 72) * kbps * 1000 // rate + ((d[i + 2] >> 1) & 1)
+    return size, kbps, rate
+
+
+def _mp3_info(d: bytes, listed_kbps: int) -> dict:
+    for i in range(len(d) - 4):
+        f = _mp3_frame(d, i)
+        if not f or not _mp3_frame(d, i + f[0]):    # zweiter Rahmen schützt vor Zufallstreffern
+            continue
+        head = d[i + 4:i + 44]
+        if b"Xing" in head or b"VBRI" in head:      # wechselnde Bitrate
+            avg = True
+        elif b"Info" in head:                       # feste Bitrate
+            avg = False
+        else:   # ohne Hinweis: weicht der Gesamtwert vom ersten Rahmen ab, wechselt sie
+            avg = bool(listed_kbps) and abs(listed_kbps - f[1]) > max(3, f[1] * 0.03)
+        out = {"rate": f[2], "avg": avg}
+        if not listed_kbps and not avg:
+            out["kbps"] = f[1]
+        return out
+    return {}
+
+
+def file_info(uri: str, fmt: str, listed_kbps: int = 0) -> dict:
+    """Liest den Dateianfang: Abtastrate, Bittiefe und ob die Bitrate ein Durchschnitt ist.
+    Leeres Ergebnis = nicht lesbar oder anderes Format, dann gelten die Server-Angaben."""
+    if fmt not in ("MP3", "FLAC", "WAV") or not _is_web(uri):
+        return {}
+    d = _read_part(uri, 0)
+    if fmt == "WAV":
+        return _wav_info(d)
+    if d[:3] == b"ID3" and len(d) >= 10:      # Infoblock (oft mit Cover) überspringen
+        size = 10 + sum((d[6 + n] & 0x7F) << (21 - 7 * n) for n in range(4))
+        if d[5] & 0x10:
+            size += 10
+        d = _read_part(uri, size)
+    return _flac_info(d) if fmt == "FLAC" else _mp3_info(d, listed_kbps)
+
+
 def _parse_didl(didl: str) -> list:
     root = ET.fromstring(didl)
     out = []
@@ -151,6 +262,7 @@ def _parse_didl(didl: str) -> list:
             if res is not None:
                 entry["uri"] = (res.text or "").strip()
                 entry["duration"] = _secs(res.get("duration", ""))
+                entry.update(_audio_info(res, entry["uri"]))
             if not entry.get("uri"):
                 entry["kind"] = "other"   # ohne Adresse: nicht abspielbar
             # Metadaten für den Receiver (einzelnes Item als eigenes DIDL-Dokument)

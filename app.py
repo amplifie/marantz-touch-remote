@@ -190,6 +190,8 @@ list row.disabled { opacity: 0.4; }
 .np-title { font-size: 26pt; font-weight: 500; color: #f2f1ee; }
 .np-artist { font-size: 17pt; font-weight: 300; color: #d9b97e; }
 .np-album { font-size: 13pt; font-weight: 300; color: #9a9da4; }
+.np-format { font-size: 13pt; font-weight: 600; color: #d9b97e;
+             border: 1px solid rgba(217,185,126,0.45); border-radius: 14px; padding: 5px 14px; }
 .np-time { font-size: 13pt; font-weight: 400; color: #b9bcc2; }
 .np-chip { font-size: 9pt; font-weight: 600; letter-spacing: 2px; color: #7d8088;
            border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 4px 12px; }
@@ -1173,6 +1175,11 @@ class App(Gtk.Window):
         self.np_album.set_ellipsize(3)
         for w in (self.np_title, self.np_artist, self.np_album):
             info.pack_start(w, False, False, 0)
+        self.np_format = label("", "np-format", xalign=0)      # z. B. FLAC · 1067 kbit/s · 44,1 kHz
+        self.np_format.set_halign(Gtk.Align.START)
+        self.np_format.set_ellipsize(3)
+        self.np_format.set_opacity(0)                          # ohne Angaben unsichtbar
+        info.pack_start(self.np_format, False, False, 6)
         body.pack_start(info, True, True, 0)
         page.pack_start(body, True, True, 0)
 
@@ -1297,6 +1304,8 @@ class App(Gtk.Window):
             self.seek_cancel()              # altes Spulziel gehört nicht zum neuen Titel
             self.pl.update(id=it["id"], title=it["title"], artist=it.get("artist"),
                            album=it.get("album"), art=it.get("art"), state="PLAYING",
+                           format=it.get("format"), kbps=it.get("kbps"), rate=it.get("rate"),
+                           bits=None, avg=None,
                            elapsed=0, duration=it.get("duration"), active=True,
                            index=None, count=None)
             # Ein paar Sekunden lang alte Statusmeldungen ignorieren, bis der Titel wirklich läuft
@@ -1432,7 +1441,12 @@ class App(Gtk.Window):
         tm = f"{self.fmt_time(pl.get('elapsed') or 0)} / {self.fmt_time(pl.get('duration'))}"
         state = _({"PLAYING": "", "PAUSED_PLAYBACK": "Pause · ", "STOPPED": "Gestoppt · ",
                    "TRANSITIONING": "lädt … · "}.get(pl.get("state", ""), ""))
-        update_text(self.mini_sub, f"{state}{pl.get('artist') or ''}  ·  {tm}")
+        short = self.fmt_audio(pl, rate=False)     # vorn, damit ein langer Name es nicht abschneidet
+        update_text(self.mini_sub, (f"{short}  ·  " if short else "")
+                    + f"{state}{pl.get('artist') or ''}  ·  {tm}")
+        fmt = self.fmt_audio(pl)
+        update_text(self.np_format, fmt)
+        self.np_format.set_opacity(1 if fmt else 0)
         update_text(self.np_title, title)
         update_text(self.np_artist, pl.get("artist") or "")
         update_text(self.np_album, tr(pl.get("album") or ""))
@@ -1446,6 +1460,17 @@ class App(Gtk.Window):
         self.load_art(pl.get("art"))
         if self.playing_id() != self.shown_pid:     # neue Listenzeilen markiert lib_more selbst
             self.mark_playing()
+
+    @staticmethod
+    def fmt_audio(pl, rate=True):
+        """„FLAC · Ø 2900 kbit/s · 24 Bit / 96 kHz“ – nur Bekanntes; Ø = Durchschnitt."""
+        parts = [pl.get("format") or ""]
+        if pl.get("kbps"):
+            parts.append(("Ø " if pl.get("avg") else "") + f"{pl['kbps']} kbit/s")
+        if rate and pl.get("rate"):
+            khz = f"{pl['rate'] / 1000:g}".replace(".", i18n.DEC) + " kHz"
+            parts.append(f"{pl['bits']} Bit / {khz}" if pl.get("bits") else khz)
+        return " · ".join(p for p in parts if p)
 
     def load_art(self, url):
         if url and not url.lower().startswith(("http://", "https://")):

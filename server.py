@@ -392,9 +392,22 @@ class Player:
                  f"{s['state']}, bis {self.peak} s, Länge Plex "
                  f"{self.queue[self.i].get('duration')} s, Receiver {self.own_dur} s)")
 
+    def _probe(self, track):
+        """Eigener kurzer Thread: genaue Angaben aus der Datei lesen (bremst nichts)."""
+        try:
+            info = upnp.file_info(track["uri"], track.get("format", ""), track.get("kbps") or 0)
+        except Exception as e:  # noqa: BLE001  (dann bleiben die Angaben von Plex)
+            log_error("Dateiangaben lesen", e)
+            return
+        with self.lock:
+            track.update(info)
+
     def status(self):
         with self.lock:             # wird nie während eines Netzzugriffs gehalten
             t = self.queue[self.i] if 0 <= self.i < len(self.queue) else None
+            if t and not t.get("probed"):       # nur der laufende Titel, je einmal
+                t["probed"] = True
+                threading.Thread(target=self._probe, args=(t,), daemon=True).start()
             st = self.last.get("state", "") if self.active else "STOPPED"
             # Länge aus Plex (genau); der Receiver schätzt sie bei manchen MP3s falsch
             dur = (t or {}).get("duration") or self.own_dur
@@ -403,6 +416,9 @@ class Player:
                 "active": self.active, "state": st,
                 "id": t and t["id"], "title": t and t["title"], "artist": t and t.get("artist"),
                 "album": t and t.get("album"), "art": t and t.get("art"),
+                "format": t and t.get("format"), "kbps": t and t.get("kbps"),
+                "rate": t and t.get("rate"), "bits": t and t.get("bits"),
+                "avg": t and t.get("avg"),
                 "elapsed": min(el or 0, dur) if dur else el, "duration": dur,
                 "index": self.i + 1, "count": len(self.queue),
                 "error": self.error, "error_id": self.error_id,
