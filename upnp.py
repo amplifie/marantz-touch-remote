@@ -134,6 +134,18 @@ _FORMATS = {"audio/mpeg": "MP3", "audio/mp3": "MP3", "audio/flac": "FLAC", "audi
             "audio/ogg": "OGG", "audio/aac": "AAC", "audio/mp4": "M4A", "audio/x-m4a": "M4A"}
 
 
+def _bytes_per_s(res, value: int) -> float:
+    """"bitrate" ist laut UPnP Byte pro Sekunde; manche Server (MiniDLNA) melden Bit pro
+    Sekunde. Nennt der Server Größe und Länge, zeigt der Vergleich, was gemeint ist."""
+    size, secs = res.get("size", ""), _secs(res.get("duration", ""))
+    if value and secs and re.fullmatch(r"[0-9]{1,15}", size) and int(size):
+        real = int(size) / secs
+        # näher an "Bit" als an "Byte"? (Grenze beim geometrischen Mittel von 1 und 8)
+        if value / real > 8 ** 0.5:
+            return value / 8
+    return value
+
+
 def _audio_info(res, uri: str) -> dict:
     """Format, Bitrate (kbit/s) und Abtastrate (Hz) laut Server; Unbekanntes bleibt leer."""
     def number(name):
@@ -149,7 +161,7 @@ def _audio_info(res, uri: str) -> dict:
         fmt = "AAC"
     # UPnP gibt "bitrate" in Byte pro Sekunde an. Bei WAV meldet Plex eine falsche
     # Abtastrate (48 statt 44,1 kHz, an echten Dateien geprüft) – dort weglassen.
-    return {"format": fmt, "kbps": round(number("bitrate") * 8 / 1000),
+    return {"format": fmt, "kbps": round(_bytes_per_s(res, number("bitrate")) * 8 / 1000),
             "rate": 0 if fmt in ("WAV", "PCM") else number("sampleFrequency")}
 
 
@@ -161,7 +173,9 @@ _MP3_RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 120
 
 
 def _read_part(uri: str, start: int) -> bytes:
-    req = urllib.request.Request(uri, headers={"Range": f"bytes={start}-{start + HEAD - 1}"})
+    # Ohne festes Ende: kleine Dateien lehnt mancher Server sonst ab (MiniDLNA: 416).
+    # Gelesen wird trotzdem nur HEAD; am Dateianfang ganz ohne Teil-Abruf.
+    req = urllib.request.Request(uri, headers={"Range": f"bytes={start}-"} if start else {})
     with urllib.request.urlopen(req, timeout=5) as r:
         if start and r.status != 206:       # Server kann nicht mittendrin anfangen
             return b""
@@ -258,7 +272,10 @@ def _parse_didl(didl: str) -> list:
                 entry["kind"] = "other"   # Video/Foto: nicht abspielbar
             entry["artist"] = (el.findtext("upnp:artist", "", NS) or el.findtext("dc:creator", "", NS))
             entry["album"] = el.findtext("upnp:album", "", NS)
-            res = el.find("didl:res", NS)
+            # erste Fassung, die kein Bild/Video ist (manche Server nennen zuerst das Cover)
+            res = next((r for r in el.findall("didl:res", NS)
+                        if not re.match(r"[^:]*:[^:]*:(image|video|text)/",
+                                        r.get("protocolInfo", ""), re.I)), None)
             if res is not None:
                 entry["uri"] = (res.text or "").strip()
                 entry["duration"] = _secs(res.get("duration", ""))
@@ -282,22 +299,31 @@ def browse(object_id: str = "0", start: int = 0, count: int = 200) -> dict:
             r = soap(plex_ctrl(), CD, "Browse", args)
         except (OSError, RuntimeError):
             r = soap(plex_ctrl(refresh=True), CD, "Browse", args)  # Plex evtl. umgezogen
+        items = _parse_didl(r.get("Result", ""))
+        total = int(r.get("TotalMatches") or 0)
     except Exception as e:
         e.source = "plex"           # für die Fehlermeldung in der App
         raise
-    return {"items": _parse_didl(r.get("Result", "")), "total": int(r.get("TotalMatches") or 0)}
+    more = total <= 0 and bool(items)       # 0 trotz Einträgen = Gesamtzahl unbekannt
+    if total <= 0:
+        total = start + len(items) + more   # +1: es kann noch weitergehen
+    return {"items": items, "total": total, "open": more}
 
 
 def browse_all(object_id: str, limit: int = 2000, start: int = 0) -> list:
     """Bis zu limit Einträge ab Position start."""
-    items, end = [], start + limit
+    items, end, first = [], start + limit, None
     while start < end:
         r = browse(object_id, start, 200)
+        if r["items"]:
+            if r["items"][0]["id"] == first:    # Server blättert nicht weiter
+                break
+            first = r["items"][0]["id"]
         items += r["items"]
         start += len(r["items"])
         if not r["items"] or start >= r["total"]:
             break
-    return items
+    return items[:limit]
 
 
 # ---------- Receiver als Abspielgerät ----------

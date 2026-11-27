@@ -1244,6 +1244,8 @@ class App(Gtk.Window):
                 self.lib_list.add(row)
                 row.show_all()
             n = self.lib_total
+            if r.get("open"):                    # Server nennt keine Gesamtzahl
+                n = f"{len(self.lib_items)}+"
             self.media_pos.set_text("leer" if not n else _("{} Einträge").format(n) if n != 1 else "1 Eintrag")
             self.mark_playing()
             if self.lib_row_wanted is not None:

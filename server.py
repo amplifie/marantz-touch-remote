@@ -566,7 +566,8 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/lib":
                 count = max(1, min(200, int(q.get("count", 200))))     # 0 hieße „alles“
                 r = upnp.browse(q.get("id", "0"), int(q.get("start", 0)), count)
-                self._json({"items": [public(i) for i in r["items"]], "total": r["total"]})
+                self._json({"items": [public(i) for i in r["items"]], "total": r["total"],
+                            "open": r["open"]})
             elif u.path == "/api/play":
                 try:
                     tracks, idx = folder_tracks(q["parent"], q.get("item"),
