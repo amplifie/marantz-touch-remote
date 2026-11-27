@@ -33,7 +33,10 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
   Subwoofer-Pegel, Kanalpegel aller Lautsprecher (±0,5 / ±3 dB)
 - **EQ:** Bass/Höhen und **9-Band-Grafik-EQ** pro Lautsprechergruppe
 - **Tastaturkürzel** und Mausrad, mit Hilfe in der App (`F1`)
-- **Mediathek:** durchsucht einen Plex-Server per UPnP und spielt direkt auf dem Receiver ab –
+- **Mediathek:** durchsucht einen UPnP-Medienserver (z. B. Plex) und spielt direkt auf dem Receiver ab;
+  bei mehreren Servern wählt man über den Knopf „Server“. Im Alltag benutzt mit Plex; Durchsuchen auch mit
+  MiniDLNA, Gerbera und Rygel in einem Testaufbau geprüft (ohne Wiedergabe am Receiver). Der Sprachbefehl
+  „Spiele …“ geht nur mit Plex –
   mit Cover, Spulen, Warteschlange und lückenlosem Weiterspielen (läuft im Hintergrunddienst weiter);
   zeigt Format, Bitrate, Bittiefe und Abtastrate des Titels (z. B. FLAC · Ø 2900 kbit/s · 24 Bit / 96 kHz;
   Ø = Durchschnitt bei wechselnder Bitrate)
@@ -41,7 +44,7 @@ Entstanden für ein Microsoft Surface 3 mit Linux Mint XFCE, läuft aber auf jed
 - **Sprachsteuerung (optional, offline)** mit [Vosk](https://alphacephei.com/vosk/):
   „lauter“, „Filmabend“, „Spiele Adele“ …
 - **Deutsch und Englisch** – automatisch nach der Systemsprache
-- Receiver und Plex-Server werden im Heimnetz **automatisch gefunden** (SSDP / ARP)
+- Receiver und Medienserver werden im Heimnetz **automatisch gefunden** (SSDP / ARP)
 
 | EQ | Klang & Pegel |
 |---|---|
@@ -122,7 +125,7 @@ der 🎤-Knopf. `mic-fix.sh` aktiviert das eingebaute Digitalmikrofon des Surfac
 | Datei | Aufgabe |
 |---|---|
 | `marantz.py` | Steuerung des Receivers (HTTP-Befehle, Status-XML, Telnet-Abfragen, Grafik-EQ über die Setup-Webseite), Befehls-Whitelist |
-| `upnp.py` | Plex-Bibliothek (UPnP ContentDirectory) und Receiver als Abspielgerät (AVTransport) |
+| `upnp.py` | Medienserver (UPnP ContentDirectory) und Receiver als Abspielgerät (AVTransport) |
 | `server.py` | Hintergrunddienst (nur lokal): JSON-API für die App, Wiedergabe-Warteschlange |
 | `app.py` | GTK3-Oberfläche fürs Touch-Display |
 | `i18n.py` | Übersetzungen Deutsch / Englisch |

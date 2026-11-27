@@ -675,6 +675,7 @@ class Worker:
 
 
 SERVER = "http://127.0.0.1:8080"   # Hintergrunddienst (Bibliothek + Wiedergabe)
+SERVERS = "@servers"  # Kennung der Server-Auswahl in der Mediathek
 LIB_PAGE = 60       # Einträge je Nachladen in der Mediathek (mehr lässt die Oberfläche stocken)
 COVER_BYTES = 8 * 1024 * 1024
 COVER_PIXELS = 16_000_000          # größere Bilder gar nicht erst entpacken
@@ -711,7 +712,7 @@ def api(path, timeout=60):
 def err_text(e):
     """Fehlermeldung mit der Stelle, an der es wirklich hakt."""
     source = getattr(e, "source", "receiver" if isinstance(e, OSError) else "")
-    head = {"receiver": "Receiver-Fehler: {}", "plex": "Plex-Fehler: {}",
+    head = {"receiver": "Receiver-Fehler: {}", "plex": "Medienserver-Fehler: {}",
             "dienst": "Fehler im Hintergrunddienst: {}"}.get(source, "Fehler: {}")
     return _(head).format(_(str(e)))
 
@@ -1071,7 +1072,7 @@ class App(Gtk.Window):
         page.pack_start(lv, False, False, 0)
         return page
 
-    # ----- Musik-Seite: Plex-Bibliothek + Wiedergabe (über den Hintergrunddienst) -----
+    # ----- Musik-Seite: Bibliothek des Medienservers + Wiedergabe (über den Hintergrunddienst) -----
     def build_media(self):
         self.lib_path = [("0", "Bibliothek")]
         self.lib_items, self.lib_total, self.lib_loading = [], 0, False
@@ -1099,6 +1100,7 @@ class App(Gtk.Window):
         head.pack_start(self.media_title, True, True, 0)
         self.media_pos = label("", "media-pos", xalign=1)
         head.pack_start(self.media_pos, False, False, 0)
+        head.pack_start(button("Server", self.lib_servers, "ctl"), False, False, 0)
         lib.pack_start(head, False, False, 0)
 
         self.lib_list = Gtk.ListBox()
@@ -1257,8 +1259,23 @@ class App(Gtk.Window):
             self.lib_loading = False
             self.media_pos.set_text("")
             self.show_err(e)
-        in_bg(lambda: api(f"/api/lib?id={urllib.parse.quote(oid)}&start={start}&count={LIB_PAGE}"),
-              done, fail)
+            if str(e) == "Bitte Medienserver wählen" and oid != SERVERS:
+                self.lib_servers()
+        path = (f"/api/lib?id={urllib.parse.quote(oid)}&start={start}&count={LIB_PAGE}"
+                if oid != SERVERS else "/api/servers")
+        in_bg(lambda: api(path), done, fail)
+
+    def lib_servers(self):
+        """Auswahl des Medienservers – eine Liste wie ein Ordner (Zurück führt hinaus)."""
+        if self.lib_path[-1][0] != SERVERS:
+            self.lib_open(SERVERS, "Medienserver")
+
+    def select_server(self, udn):
+        def done(_r):
+            self.lib_path = [("0", "Bibliothek")]
+            self.lib_row_memory.clear()         # Zeilen gehörten zum alten Server
+            self.lib_open("0", "Bibliothek", push=False)
+        in_bg(lambda: api("/api/server?id=" + urllib.parse.quote(udn)), done, self.show_err)
 
     def lib_row(self, it):
         row = Gtk.ListBoxRow()
@@ -1270,6 +1287,8 @@ class App(Gtk.Window):
         t.set_ellipsize(3)
         txt.pack_start(t, False, False, 0)
         sub = it.get("artist") if it["kind"] == "track" else ""
+        if it.get("current"):
+            sub = "✓ " + _("aktuell")
         if it["kind"] == "other":
             sub = "nicht abspielbar"
         if sub:
@@ -1281,7 +1300,7 @@ class App(Gtk.Window):
             box.pack_start(label("›", "row-chev"), False, False, 0)
         elif it["kind"] == "track":
             box.pack_start(label(self.fmt_time(it.get("duration")), "row-dur"), False, False, 0)
-        else:
+        elif it["kind"] != "server":
             add_cls(row, "disabled")
         row.add(box)
         return row
@@ -1301,6 +1320,8 @@ class App(Gtk.Window):
         it = row.item
         if it["kind"] == "folder":
             self.lib_open(it["id"], it["title"])
+        elif it["kind"] == "server":
+            self.select_server(it["id"])
         elif it["kind"] == "track":
             parent, pos = self.lib_path[-1][0], row.get_index()
             self.seek_cancel()              # altes Spulziel gehört nicht zum neuen Titel
@@ -2889,7 +2910,7 @@ class App(Gtk.Window):
 
     def activate_focus(self, w):
         if isinstance(w, Gtk.ListBoxRow):
-            if w.item["kind"] == "folder":
+            if w.item["kind"] in ("folder", "server"):
                 self.lib_row_memory[len(self.lib_path)] = w.get_index()
                 self.lib_row_wanted = 0
                 self.set_kfocus(None)

@@ -2,7 +2,7 @@ TOUCH REMOTE FOR MARANTZ
 ========================
 
 Touch-Fernbedienung für Marantz-AV-Receiver (gebaut und getestet mit dem SR7010)
-mit Plex-Mediathek. Läuft unter Linux (z. B. Linux Mint, Ubuntu, Debian).
+mit Mediathek (UPnP-Medienserver, z. B. Plex). Läuft unter Linux (z. B. Linux Mint, Ubuntu, Debian).
 
 INSTALLIEREN
 1. Paket entpacken (Doppelklick oder: tar xzf touch-remote-for-marantz.tar.gz)
@@ -13,7 +13,7 @@ INSTALLIEREN
 
 Inoffizielles Hobbyprojekt – nicht mit Marantz / Sound United verbunden.
 
-Receiver und Plex-Server werden im Heimnetz automatisch gesucht.
+Receiver und Medienserver werden im Heimnetz automatisch gesucht.
 Lautstärke: maximal 90 (MAX_VOL). Ab 80 (LOUD) sanfter Stopp mit Hinweis – mit neuem Druck geht es weiter.
 
 BEDIENUNG

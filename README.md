@@ -33,13 +33,16 @@ Originally made for a Microsoft Surface 3 running Linux Mint XFCE, but it runs o
   subwoofer level, channel levels of all speakers (±0.5 / ±3 dB)
 - **EQ:** bass/treble and a **9-band graphic EQ** per speaker group
 - **Keyboard shortcuts** and mouse wheel, with an in-app help (`F1`)
-- **Library:** browses a Plex server via UPnP and plays directly on the receiver –
+- **Library:** browses a UPnP media server (e.g. Plex) and plays directly on the receiver;
+  with several servers, pick one with the “Server” button. Used daily with Plex; browsing also checked with
+  MiniDLNA, Gerbera and Rygel in a test setup (without playback on the receiver). The voice command to play
+  an artist works with Plex only –
   with cover art, seeking, queue and gapless playback (keeps playing in the background service);
   shows format, bitrate, bit depth and sample rate of the track (e.g. FLAC · Ø 2900 kbit/s · 24 Bit / 96 kHz;
   Ø = average for variable bitrate)
 - **Setup menu on the TV** via an on-screen D-pad
 - **English and German** – chosen automatically from the system language
-- Receiver and Plex server are **found automatically** on the home network (SSDP / ARP)
+- Receiver and media server are **found automatically** on the home network (SSDP / ARP)
 - Optional **offline voice control** (German) with [Vosk](https://alphacephei.com/vosk/)
 
 | EQ | Sound & Levels |
@@ -123,7 +126,7 @@ To change it, tap the 🌐 globe at the top right (Auto · Deutsch · English) �
 | File | Purpose |
 |---|---|
 | `marantz.py` | Receiver control (HTTP commands, status XML, telnet queries, graphic EQ via the setup web page), command whitelist |
-| `upnp.py` | Plex library (UPnP ContentDirectory) and the receiver as a renderer (AVTransport) |
+| `upnp.py` | Media server (UPnP ContentDirectory) and the receiver as a renderer (AVTransport) |
 | `server.py` | Background service (local only): JSON API for the app, playback queue |
 | `app.py` | GTK3 touch interface |
 | `i18n.py` | English / German translations |

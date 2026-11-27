@@ -40,7 +40,7 @@ EN = {
     "KLANGMODUS": "SURROUND MODE", "Klangmodus": "Surround mode",
     "Eingeschaltet": "On", "Standby": "Standby", "Receiver ist ausgeschaltet": "Receiver is off",
     "Keine Verbindung": "No connection", "Receiver unter %s nicht erreichbar": "Receiver at %s not reachable",
-    "Receiver-Fehler: {}": "Receiver error: {}", "Plex-Fehler: {}": "Plex error: {}",
+    "Receiver-Fehler: {}": "Receiver error: {}", "Medienserver-Fehler: {}": "Media server error: {}",
     "Fehler im Hintergrunddienst: {}": "Background service error: {}", "Fehler: {}": "Error: {}",
     "Hintergrunddienst antwortet nicht": "Background service not responding",
     "Zugriff nicht erlaubt": "Access not allowed",
@@ -108,7 +108,7 @@ EN = {
     "‹  Zurück": "‹  Back", "Bibliothek": "Library", "‹  Bibliothek": "‹  Library",
     "Jetzt läuft": "Now Playing", "Zum Spulen auf den Balken tippen": "Tap the bar to seek",
     "{} Einträge": "{} items", "1 Eintrag": "1 item", "leer": "empty",
-    "nicht abspielbar": "not playable", "Pause · ": "Paused · ", "Gestoppt · ": "Stopped · ",
+    "nicht abspielbar": "not playable", "Medienserver": "Media servers", "aktuell": "current", "Pause · ": "Paused · ", "Gestoppt · ": "Stopped · ",
     "lädt … · ": "loading … · ", "Titel {} von {}": "Track {} of {}",
     # --- Szenen ---
     "Szene": "Scene", "Szene {}": "Scene {}", "Szene „{}“ wird eingestellt …": "Setting scene “{}” …",
@@ -158,7 +158,9 @@ EN = {
     "Eingang Mediaserver": "Input Media Server", "Szene Musik": "Scene Music",
     # --- Fehlermeldungen aus marantz.py / upnp.py / server.py ---
     "Marantz-Receiver im Netz nicht gefunden": "Marantz receiver not found on the network",
-    "Plex-Server nicht gefunden": "Plex server not found",
+    "Medienserver nicht gefunden": "Media server not found",
+    "Gewählter Medienserver nicht erreichbar": "Selected media server not reachable",
+    "Bitte Medienserver wählen": "Please choose a media server",
     "Künstlerliste in Plex nicht gefunden": "Artist list not found in Plex",
 }
 

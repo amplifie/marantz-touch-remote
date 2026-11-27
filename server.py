@@ -2,7 +2,7 @@
 """Marantz-Fernbedienung: Hintergrunddienst (nur auf diesem Rechner erreichbar).
 
 - stellt eine kleine JSON-Schnittstelle für die App bereit (127.0.0.1:8080)
-- verwaltet die Musik-Wiedergabe aus der Plex-Bibliothek mit Warteschlange
+- verwaltet die Musik-Wiedergabe vom Medienserver mit Warteschlange
   (läuft weiter, auch wenn die App geschlossen ist)
 """
 import json
@@ -395,8 +395,9 @@ class Player:
     def _probe(self, track):
         """Eigener kurzer Thread: genaue Angaben aus der Datei lesen (bremst nichts)."""
         try:
-            info = upnp.file_info(track["uri"], track.get("format", ""), track.get("kbps") or 0)
-        except Exception as e:  # noqa: BLE001  (dann bleiben die Angaben von Plex)
+            info = upnp.file_info(track["uri"], track.get("format", ""), track.get("kbps") or 0,
+                                  track.get("size") or 0, track.get("duration") or 0)
+        except Exception as e:  # noqa: BLE001  (dann bleiben die Angaben des Servers)
             log_error("Dateiangaben lesen", e)
             return
         with self.lock:
@@ -568,6 +569,16 @@ class Handler(BaseHTTPRequestHandler):
                 r = upnp.browse(q.get("id", "0"), int(q.get("start", 0)), count)
                 self._json({"items": [public(i) for i in r["items"]], "total": r["total"],
                             "open": r["open"]})
+            elif u.path == "/api/servers":                  # Medienserver zur Auswahl
+                found = upnp.servers()
+                self._json({"items": found, "total": len(found), "open": False})
+            elif u.path == "/api/server":
+                try:
+                    upnp.select_server(q.get("id", ""))
+                except LookupError as e:
+                    return self._json({"error": str(e), "source": "plex"}, 404)
+                _artists.update(t=0.0, list=[])             # gehörte zum alten Server
+                self._json({"ok": True})
             elif u.path == "/api/play":
                 try:
                     tracks, idx = folder_tracks(q["parent"], q.get("item"),

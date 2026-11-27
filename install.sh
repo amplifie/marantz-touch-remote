@@ -67,5 +67,5 @@ systemctl --user restart marantz-web.service
 
 echo
 say "Fertig! Im Startmenü nach „Touch Remote for Marantz“ suchen." "Done! Look for “Touch Remote for Marantz” in the start menu."
-say "Receiver und Plex-Server werden im Heimnetz automatisch gefunden." \
-    "The receiver and Plex server are found automatically on your home network."
+say "Receiver und Medienserver werden im Heimnetz automatisch gefunden." \
+    "The receiver and media server are found automatically on your home network."
